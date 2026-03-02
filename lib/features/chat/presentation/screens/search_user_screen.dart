@@ -121,7 +121,11 @@ class SearchUserScreen extends ConsumerWidget {
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => ChatScreen(receiverId: uid, receiverName: name),
+                        builder: (context) => ChatScreen(
+                            receiverId: uid,
+                            receiverName: name,
+                            receiverAvatar: avatar,
+                        ),
                       ),
                     );
                   },

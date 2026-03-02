@@ -172,6 +172,7 @@ class HomeScreen extends ConsumerWidget {
                                 builder: (context) => ChatScreen(
                                   receiverId: uid,
                                   receiverName: name,
+                                  receiverAvatar: avatar,
                                 ),
                               ),
                             );
