@@ -5,6 +5,8 @@ import '../../features/auth/presentation/screens/home_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/signup_screen.dart';
 import '../../features/auth/presentation/auth_controller.dart';
+import '../../features/profile/presentation/screens/settings_screen.dart';
+import '../../features/chat/presentation/screens/search_user_screen.dart';
 
 // Đưa GoRouter vào một Provider để nó có thể đọc được trạng thái từ Riverpod
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -48,6 +50,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         path: '/home',
         builder: (context, state) => const HomeScreen(),
       ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+          path: '/search',
+          builder: (context, state) => const SearchUserScreen()
+      )
     ],
   );
 });

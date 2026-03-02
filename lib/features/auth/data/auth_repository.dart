@@ -37,13 +37,18 @@ class AuthRepository {
     }
   }
 
-  // Đăng ký bằng Email & Mật khẩu
-  Future<UserCredential> signUpWithEmail(String email, String password) async {
+  // Đăng ký bằng Email, Mật khẩu & Tên hiển thị
+  Future<UserCredential> signUpWithEmail(String name, String email, String password) async {
     try {
-      return await _firebaseAuth.createUserWithEmailAndPassword(
+      final credential = await _firebaseAuth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
+      // Cập nhật tên hiển thị ngay sau khi tạo tài khoản
+      await credential.user?.updateDisplayName(name);
+      // Cập nhật lại user để đảm bảo lấy được tên mới nhất
+      await credential.user?.reload();
+      return credential;
     } catch (e) {
       rethrow;
     }

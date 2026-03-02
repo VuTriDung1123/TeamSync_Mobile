@@ -50,10 +50,11 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
     }
   }
 
-  Future<void> signUpWithEmail(String email, String password) async {
+  // Thêm tham số name vào đây
+  Future<void> signUpWithEmail(String name, String email, String password) async {
     state = const AsyncLoading();
     try {
-      await _authRepository.signUpWithEmail(email, password);
+      await _authRepository.signUpWithEmail(name, email, password);
       state = const AsyncData(null);
     } catch (e, st) {
       state = AsyncError(e, st);
