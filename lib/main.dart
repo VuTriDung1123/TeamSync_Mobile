@@ -27,10 +27,11 @@ class TeamSyncApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final router = ref.watch(goRouterProvider);
     return MaterialApp.router(
       title: 'TeamSync Mobile',
       debugShowCheckedModeBanner: false,
-      routerConfig: goRouter,
+      routerConfig: router,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
