@@ -1,22 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../auth_controller.dart';
 
-// 1. Đổi StatelessWidget thành ConsumerWidget
-class LoginScreen extends ConsumerWidget {
+// Nâng cấp lên ConsumerStatefulWidget để quản lý text input
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  // 2. Thêm tham số WidgetRef ref vào hàm build
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Lấy theme màu hiện tại (Tone hồng nhạt đã setup ở main.dart)
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends ConsumerState<LoginScreen> {
+  // Tạo bộ điều khiển cho Email và Password
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  // Đừng quên dọn dẹp bộ nhớ khi hủy màn hình
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    // 3. Lắng nghe trạng thái loading từ AuthController
+    // Lắng nghe trạng thái loading
     final authState = ref.watch(authControllerProvider);
     final isLoading = authState.isLoading;
+
+    // Lắng nghe trạng thái để tự động nhảy trang
+    ref.listen<AsyncValue<void>>(
+      authControllerProvider,
+          (previous, next) {
+        next.whenOrNull(
+          data: (_) {
+            context.go('/home'); // Đăng nhập thành công -> Vào Home
+          },
+          error: (error, stackTrace) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Lỗi đăng nhập: ${error.toString()}')),
+            );
+          },
+        );
+      },
+    );
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -27,7 +60,6 @@ class LoginScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Gap(20),
-              // Icon Logo và Tên App
               Icon(
                 Icons.hub_rounded,
                 size: 80,
@@ -57,6 +89,8 @@ class LoginScreen extends ConsumerWidget {
 
               // TextField: Email
               TextFormField(
+                controller: _emailController, // Gắn controller
+                keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
                   labelText: 'Email',
                   hintText: 'Nhập email của bạn',
@@ -77,6 +111,7 @@ class LoginScreen extends ConsumerWidget {
 
               // TextField: Mật khẩu
               TextFormField(
+                controller: _passwordController, // Gắn controller
                 obscureText: true,
                 decoration: InputDecoration(
                   labelText: 'Mật khẩu',
@@ -96,7 +131,6 @@ class LoginScreen extends ConsumerWidget {
                 ),
               ),
 
-              // Nút Quên mật khẩu
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
@@ -112,9 +146,23 @@ class LoginScreen extends ConsumerWidget {
               ),
               const Gap(10),
 
-              // Nút Đăng nhập chính
+              // 1. Nút Đăng nhập Email/Password
               ElevatedButton(
-                onPressed: () {},
+                onPressed: isLoading
+                    ? null
+                    : () {
+                  // Lấy text và gửi lên Firebase
+                  final email = _emailController.text.trim();
+                  final password = _passwordController.text.trim();
+                  if (email.isNotEmpty && password.isNotEmpty) {
+                    ref.read(authControllerProvider.notifier).signInWithEmail(email, password);
+                  } else {
+                    // Báo lỗi nhẹ nếu bỏ trống (bạn có thể thay bằng SnackBar sau)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Vui lòng nhập đầy đủ Email và Mật khẩu!')),
+                    );
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 18),
                   backgroundColor: colorScheme.primary,
@@ -124,7 +172,13 @@ class LoginScreen extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                child: Text(
+                child: isLoading
+                    ? const SizedBox(
+                  height: 24,
+                  width: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+                    : Text(
                   'ĐĂNG NHẬP',
                   style: GoogleFonts.nunito(
                     fontSize: 18,
@@ -135,7 +189,6 @@ class LoginScreen extends ConsumerWidget {
               ),
               const Gap(30),
 
-              // Đường kẻ "Hoặc"
               Row(
                 children: [
                   Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
@@ -154,13 +207,11 @@ class LoginScreen extends ConsumerWidget {
               ),
               const Gap(30),
 
-              // 4. Nút đăng nhập Google đã được gắn logic
+              // 2. Nút đăng nhập Google
               OutlinedButton(
-                // Nếu đang loading thì khóa nút lại (nhận giá trị null)
                 onPressed: isLoading
                     ? null
                     : () {
-                  // Gọi hàm đăng nhập từ Controller
                   ref.read(authControllerProvider.notifier).signInWithGoogle();
                 },
                 style: OutlinedButton.styleFrom(
@@ -170,14 +221,7 @@ class LoginScreen extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                // Hiển thị vòng quay nếu đang loading, ngược lại hiện Icon + Text
-                child: isLoading
-                    ? const SizedBox(
-                  height: 24,
-                  width: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-                    : Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Icon(Icons.g_mobiledata, size: 30, color: Colors.redAccent),
@@ -195,9 +239,13 @@ class LoginScreen extends ConsumerWidget {
               ),
               const Gap(16),
 
-              // Nút đăng nhập GitHub
+              // 3. Nút đăng nhập GitHub
               OutlinedButton(
-                onPressed: () {},
+                onPressed: isLoading
+                    ? null
+                    : () {
+                  ref.read(authControllerProvider.notifier).signInWithGitHub();
+                },
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   backgroundColor: Colors.black,
@@ -223,7 +271,6 @@ class LoginScreen extends ConsumerWidget {
               ),
               const Gap(24),
 
-              // Đăng ký tài khoản mới
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -232,7 +279,9 @@ class LoginScreen extends ConsumerWidget {
                     style: GoogleFonts.nunito(color: Colors.grey.shade600),
                   ),
                   TextButton(
-                    onPressed: () {},
+                    onPressed: () {
+                      context.push('/signup');
+                    },
                     child: Text(
                       'Đăng ký ngay',
                       style: GoogleFonts.nunito(
