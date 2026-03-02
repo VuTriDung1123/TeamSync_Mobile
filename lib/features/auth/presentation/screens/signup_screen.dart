@@ -13,12 +13,14 @@ class SignUpScreen extends ConsumerStatefulWidget {
 }
 
 class _SignUpScreenState extends ConsumerState<SignUpScreen> {
+  final _nameController = TextEditingController(); // Thêm controller cho Tên
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
   @override
   void dispose() {
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -31,7 +33,6 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     final authState = ref.watch(authControllerProvider);
     final isLoading = authState.isLoading;
 
-    // Lắng nghe trạng thái để chuyển trang nếu Đăng ký thành công
     ref.listen<AsyncValue<void>>(
       authControllerProvider,
           (previous, next) {
@@ -40,7 +41,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Đăng ký thành công!')),
             );
-            context.go('/home'); // Thành công thì vào Home
+            context.go('/home');
           },
           error: (error, stackTrace) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -58,7 +59,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black),
-          onPressed: () => context.pop(), // Nút Back về Login
+          onPressed: () => context.pop(),
         ),
       ),
       body: SafeArea(
@@ -82,7 +83,20 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
               ),
               const Gap(40),
 
-              // Email
+              // Thêm trường nhập Tên
+              TextFormField(
+                controller: _nameController,
+                textCapitalization: TextCapitalization.words,
+                decoration: InputDecoration(
+                  labelText: 'Tên hiển thị',
+                  prefixIcon: Icon(Icons.person_outline, color: colorScheme.primary),
+                  filled: true,
+                  fillColor: colorScheme.primaryContainer.withOpacity(0.2),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                ),
+              ),
+              const Gap(16),
+
               TextFormField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -96,7 +110,6 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
               ),
               const Gap(16),
 
-              // Password
               TextFormField(
                 controller: _passwordController,
                 obscureText: true,
@@ -110,7 +123,6 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
               ),
               const Gap(16),
 
-              // Confirm Password
               TextFormField(
                 controller: _confirmPasswordController,
                 obscureText: true,
@@ -124,23 +136,26 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
               ),
               const Gap(40),
 
-              // Nút Đăng ký
               ElevatedButton(
                 onPressed: isLoading
                     ? null
                     : () {
+                  final name = _nameController.text.trim();
                   final email = _emailController.text.trim();
                   final pass = _passwordController.text.trim();
                   final confirmPass = _confirmPasswordController.text.trim();
 
+                  if (name.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng nhập tên!')));
+                    return;
+                  }
                   if (pass != confirmPass) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Mật khẩu không khớp!')),
-                    );
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mật khẩu không khớp!')));
                     return;
                   }
                   if (email.isNotEmpty && pass.isNotEmpty) {
-                    ref.read(authControllerProvider.notifier).signUpWithEmail(email, pass);
+                    // Truyền thêm biến name vào đây
+                    ref.read(authControllerProvider.notifier).signUpWithEmail(name, email, pass);
                   }
                 },
                 style: ElevatedButton.styleFrom(
