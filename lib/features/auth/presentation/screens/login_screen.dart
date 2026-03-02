@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../auth_controller.dart';
 
-class LoginScreen extends StatelessWidget {
+// 1. Đổi StatelessWidget thành ConsumerWidget
+class LoginScreen extends ConsumerWidget {
   const LoginScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  // 2. Thêm tham số WidgetRef ref vào hàm build
+  Widget build(BuildContext context, WidgetRef ref) {
     // Lấy theme màu hiện tại (Tone hồng nhạt đã setup ở main.dart)
     final colorScheme = Theme.of(context).colorScheme;
+
+    // 3. Lắng nghe trạng thái loading từ AuthController
+    final authState = ref.watch(authControllerProvider);
+    final isLoading = authState.isLoading;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -146,9 +154,15 @@ class LoginScreen extends StatelessWidget {
               ),
               const Gap(30),
 
-              // Nút đăng nhập Google
+              // 4. Nút đăng nhập Google đã được gắn logic
               OutlinedButton(
-                onPressed: () {},
+                // Nếu đang loading thì khóa nút lại (nhận giá trị null)
+                onPressed: isLoading
+                    ? null
+                    : () {
+                  // Gọi hàm đăng nhập từ Controller
+                  ref.read(authControllerProvider.notifier).signInWithGoogle();
+                },
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   side: BorderSide(color: Colors.grey.shade300),
@@ -156,10 +170,16 @@ class LoginScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                child: Row(
+                // Hiển thị vòng quay nếu đang loading, ngược lại hiện Icon + Text
+                child: isLoading
+                    ? const SizedBox(
+                  height: 24,
+                  width: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Tạm dùng icon mặc định, sau này có thể thêm ảnh logo Google chuẩn
                     const Icon(Icons.g_mobiledata, size: 30, color: Colors.redAccent),
                     const Gap(8),
                     Text(
@@ -180,7 +200,7 @@ class LoginScreen extends StatelessWidget {
                 onPressed: () {},
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: Colors.black, // Github thường dùng màu đen
+                  backgroundColor: Colors.black,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),

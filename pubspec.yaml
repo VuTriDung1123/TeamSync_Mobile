@@ -28,33 +28,18 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
-
-
-  # --- State Management ---
-  flutter_riverpod: ^2.4.9    # Quản lý trạng thái lõi của app
-
-  # --- Routing (Điều hướng) ---
-  go_router: ^13.2.0          # Quản lý chuyển màn hình cực mạnh, hỗ trợ deep link tốt
-
-  # --- Network & API ---
-  dio: ^5.4.0                 # Thư viện gọi API xịn nhất (hỗ trợ Interceptors cho JWT token)
-
-  # --- Storage (Lưu trữ) ---
-  flutter_secure_storage: ^9.0.0 # Lưu trữ an toàn (bắt buộc cho JWT/Password như bạn đã thiết kế)
-  shared_preferences: ^2.2.2  # Lưu các setting nhẹ như Dark mode, ngôn ngữ
-
-  # --- UI Helpers (Giao diện) ---
-  gap: ^3.0.0                 # Tạo khoảng cách (margin/padding) giữa các widget siêu nhanh
-  google_fonts: ^6.1.0        # Import font chữ đẹp dễ dàng
   flutter:
     sdk: flutter
-
-
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
-  firebase_core: ^4.4.0
-  firebase_auth: ^6.1.4
+  flutter_riverpod: ^2.4.9
+  go_router: ^13.2.0
+  dio: ^5.4.0
+  flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.2
+  gap: ^3.0.0
+  google_fonts: ^6.1.0
+  firebase_core: ^2.27.0
+  firebase_auth: ^4.17.4
+  google_sign_in: 6.2.1
 
 dev_dependencies:
   flutter_test:
