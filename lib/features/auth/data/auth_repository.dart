@@ -93,4 +93,13 @@ class AuthRepository {
     await _googleSignIn.signOut();
     await _firebaseAuth.signOut();
   }
+
+  // Hàm gửi email khôi phục mật khẩu
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _firebaseAuth.sendPasswordResetEmail(email: email);
+    } catch (e) {
+      rethrow;
+    }
+  }
 }

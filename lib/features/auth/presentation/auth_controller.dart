@@ -60,4 +60,15 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
       state = AsyncError(e, st);
     }
   }
+
+  // Hàm xử lý UI cho Quên mật khẩu
+  Future<void> resetPassword(String email) async {
+    state = const AsyncLoading();
+    try {
+      await _authRepository.sendPasswordResetEmail(email);
+      state = const AsyncData(null); // Thành công
+    } catch (e, st) {
+      state = AsyncError(e, st); // Thất bại
+    }
+  }
 }

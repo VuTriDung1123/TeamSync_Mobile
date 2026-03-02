@@ -134,7 +134,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    context.push('/forgot-password');
+                  },
                   child: Text(
                     'Quên mật khẩu?',
                     style: GoogleFonts.nunito(
