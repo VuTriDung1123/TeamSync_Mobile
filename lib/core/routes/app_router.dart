@@ -7,6 +7,8 @@ import '../../features/auth/presentation/screens/signup_screen.dart';
 import '../../features/auth/presentation/auth_controller.dart';
 import '../../features/profile/presentation/screens/settings_screen.dart';
 import '../../features/chat/presentation/screens/search_user_screen.dart';
+import '../../features/auth/presentation/screens/forgot_password_screen.dart';
+
 
 // Đưa GoRouter vào một Provider để nó có thể đọc được trạng thái từ Riverpod
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -17,20 +19,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/login',
     // Redirect logic: Chạy mỗi khi có sự thay đổi trang hoặc thay đổi state đăng nhập
     redirect: (context, state) {
-      // Đang ở trạng thái loading (đang kiểm tra Firebase) thì chưa làm gì cả
       if (authState.isLoading || authState.hasError) return null;
 
-      final isAuthenticated = authState.value != null; // Có user = đã đăng nhập
+      final isAuthenticated = authState.value != null;
       final isGoingToLogin = state.matchedLocation == '/login';
       final isGoingToSignUp = state.matchedLocation == '/signup';
+      final isGoingToForgotPass = state.matchedLocation == '/forgot-password'; // Thêm dòng này
 
-      // 1. Nếu CHƯA đăng nhập mà cố tình vào các trang bên trong -> Đuổi về Login
-      if (!isAuthenticated && !isGoingToLogin && !isGoingToSignUp) {
+      // 1. Nếu CHƯA đăng nhập mà cố tình vào các trang bên trong (không phải 3 trang Auth) -> Đuổi về Login
+      if (!isAuthenticated && !isGoingToLogin && !isGoingToSignUp && !isGoingToForgotPass) {
         return '/login';
       }
 
-      // 2. Nếu ĐÃ đăng nhập mà lại đứng ở màn hình Login/Signup -> Đẩy thẳng vào Home
-      if (isAuthenticated && (isGoingToLogin || isGoingToSignUp)) {
+      // 2. Nếu ĐÃ đăng nhập mà lại đứng ở màn hình Login/Signup/Quên MK -> Đẩy thẳng vào Home
+      if (isAuthenticated && (isGoingToLogin || isGoingToSignUp || isGoingToForgotPass)) {
         return '/home';
       }
 
@@ -57,7 +59,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
           path: '/search',
           builder: (context, state) => const SearchUserScreen()
-      )
+      ),
+      GoRoute(
+        path: '/forgot-password',
+        builder: (context, state) => const ForgotPasswordScreen(),
+      ),
     ],
   );
 });

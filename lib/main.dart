@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/routes/app_router.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   // Bắt buộc phải có dòng này trước khi gọi các native code (như Firebase)
   WidgetsFlutterBinding.ensureInitialized();
+
+  await dotenv.load(fileName: ".env");
 
   // Khởi tạo Firebase dựa trên nền tảng đang chạy (Android/iOS/Web)
   await Firebase.initializeApp(

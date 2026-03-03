@@ -125,12 +125,12 @@ class HomeScreen extends ConsumerWidget {
                             backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
                             child: avatar.isEmpty
                                 ? Text(
-                              name[0].toUpperCase(),
-                              style: GoogleFonts.nunito(
-                                color: colorScheme.primary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
+                                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                style: GoogleFonts.nunito(
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 20,
+                                ),
                             )
                                 : null,
                           ),

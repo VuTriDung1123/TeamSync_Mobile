@@ -63,3 +63,14 @@ final searchUserProvider = FutureProvider.autoDispose.family<List<Map<String, dy
 
 // Thêm .autoDispose để ô tìm kiếm không bị lưu chữ cũ
 final searchQueryProvider = StateProvider.autoDispose<String>((ref) => '');
+// Thêm Provider lắng nghe dữ liệu của CHÍNH MÌNH từ Firestore
+final currentUserProfileProvider = StreamProvider.autoDispose<Map<String, dynamic>?>((ref) {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return Stream.value(null);
+
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .snapshots()
+      .map((doc) => doc.data());
+});
