@@ -72,7 +72,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               backgroundImage: widget.receiverAvatar.isNotEmpty ? NetworkImage(widget.receiverAvatar) : null,
               child: widget.receiverAvatar.isEmpty
                   ? Text(
-                widget.receiverName[0].toUpperCase(),
+                widget.receiverName.isNotEmpty ? widget.receiverName[0].toUpperCase() : '?',
                 style: GoogleFonts.nunito(color: colorScheme.primary, fontWeight: FontWeight.bold),
               )
                   : null,
