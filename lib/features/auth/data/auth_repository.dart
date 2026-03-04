@@ -1,53 +1,64 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../../../core/utils/secure_storage_service.dart';
 
-
-// 1. Provider cung cấp instance của AuthRepository để dùng ở mọi nơi trong app
+// 1. Cập nhật Provider: Tiêm thêm secureStorageProvider vào
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepository(
     firebaseAuth: FirebaseAuth.instance,
     googleSignIn: GoogleSignIn(),
+    secureStorage: ref.read(secureStorageProvider), // <--- Thêm dòng này
   );
 });
 
-// 2. Class Repository chứa toàn bộ logic gọi API Firebase
 class AuthRepository {
   final FirebaseAuth _firebaseAuth;
   final GoogleSignIn _googleSignIn;
+  final SecureStorageService _secureStorage;
 
   AuthRepository({
     required FirebaseAuth firebaseAuth,
     required GoogleSignIn googleSignIn,
+    required SecureStorageService secureStorage,
   })  : _firebaseAuth = firebaseAuth,
-        _googleSignIn = googleSignIn;
+        _googleSignIn = googleSignIn,
+        _secureStorage = secureStorage;
 
-  // Stream theo dõi trạng thái người dùng (Đã đăng nhập hay chưa)
   Stream<User?> get authStateChanges => _firebaseAuth.authStateChanges();
 
-  // Đăng nhập bằng Email & Mật khẩu
-  Future<UserCredential> signInWithEmail(String email, String password) async {
-    try {
-      return await _firebaseAuth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-    } catch (e) {
-      rethrow; // Ném lỗi ra ngoài để UI hiển thị thông báo
+  // --- HÀM LƯU JWT (DÙNG CHUNG) ---
+  Future<void> _saveTokenLocally(User? user) async {
+    if (user != null) {
+      // Ép Firebase nhả JWT ra (getIdToken)
+      final token = await user.getIdToken();
+      if (token != null) {
+        // Cất vào két sắt
+        await _secureStorage.saveToken(token);
+        // (Tuỳ chọn) Bạn có thể in ra console để ngắm thành quả
+        // print('Đã lưu JWT thành công: $token');
+      }
     }
   }
 
-  // Đăng ký bằng Email, Mật khẩu & Tên hiển thị
+  // Đăng nhập bằng Email
+  Future<UserCredential> signInWithEmail(String email, String password) async {
+    try {
+      final credential = await _firebaseAuth.signInWithEmailAndPassword(email: email, password: password);
+      await _saveTokenLocally(credential.user); // <--- Lưu token
+      return credential;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Đăng ký bằng Email
   Future<UserCredential> signUpWithEmail(String name, String email, String password) async {
     try {
-      final credential = await _firebaseAuth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      // Cập nhật tên hiển thị ngay sau khi tạo tài khoản
+      final credential = await _firebaseAuth.createUserWithEmailAndPassword(email: email, password: password);
       await credential.user?.updateDisplayName(name);
-      // Cập nhật lại user để đảm bảo lấy được tên mới nhất
       await credential.user?.reload();
+      await _saveTokenLocally(_firebaseAuth.currentUser); // <--- Lưu token
       return credential;
     } catch (e) {
       rethrow;
@@ -57,21 +68,18 @@ class AuthRepository {
   // Đăng nhập bằng Google
   Future<UserCredential?> signInWithGoogle() async {
     try {
-      // Bật cửa sổ chọn tài khoản Google
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) return null; // Người dùng bấm Hủy
+      if (googleUser == null) return null;
 
-      // Lấy token xác thực từ Google
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-
-      // Đóng gói credential để gửi cho Firebase
       final AuthCredential credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      // Đăng nhập vào Firebase
-      return await _firebaseAuth.signInWithCredential(credential);
+      final userCredential = await _firebaseAuth.signInWithCredential(credential);
+      await _saveTokenLocally(userCredential.user); // <--- Lưu token
+      return userCredential;
     } catch (e) {
       rethrow;
     }
@@ -80,9 +88,19 @@ class AuthRepository {
   // Đăng nhập bằng GitHub
   Future<UserCredential> signInWithGitHub() async {
     try {
-      // Firebase hỗ trợ mở WebView đăng nhập GitHub rất tiện lợi
       final GithubAuthProvider githubProvider = GithubAuthProvider();
-      return await _firebaseAuth.signInWithProvider(githubProvider);
+      final userCredential = await _firebaseAuth.signInWithProvider(githubProvider);
+      await _saveTokenLocally(userCredential.user); // <--- Lưu token
+      return userCredential;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Khôi phục mật khẩu
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _firebaseAuth.sendPasswordResetEmail(email: email);
     } catch (e) {
       rethrow;
     }
@@ -92,14 +110,7 @@ class AuthRepository {
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _firebaseAuth.signOut();
-  }
-
-  // Hàm gửi email khôi phục mật khẩu
-  Future<void> sendPasswordResetEmail(String email) async {
-    try {
-      await _firebaseAuth.sendPasswordResetEmail(email: email);
-    } catch (e) {
-      rethrow;
-    }
+    // Xóa sạch token khỏi két sắt khi đăng xuất
+    await _secureStorage.deleteToken();
   }
 }

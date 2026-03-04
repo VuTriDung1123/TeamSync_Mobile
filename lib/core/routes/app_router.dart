@@ -8,6 +8,8 @@ import '../../features/auth/presentation/auth_controller.dart';
 import '../../features/profile/presentation/screens/settings_screen.dart';
 import '../../features/chat/presentation/screens/search_user_screen.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
+import '../../features/projects/data/models/project_model.dart';
+import '../../features/projects/presentation/screens/project_detail_screen.dart';
 
 
 // Đưa GoRouter vào một Provider để nó có thể đọc được trạng thái từ Riverpod
@@ -64,6 +66,13 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         path: '/forgot-password',
         builder: (context, state) => const ForgotPasswordScreen(),
       ),
+      GoRoute(
+        path:'/project-detail',
+        builder: (context, state) {
+          final project = state.extra as ProjectModel;
+          return ProjectDetailScreen(project: project);
+        },
+      )
     ],
   );
 });
