@@ -3,12 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gap/gap.dart';
-import '../../../auth/presentation/auth_controller.dart';
+
 import '../../data/models/project_model.dart';
 import '../../data/models/task_model.dart';
 import '../../data/repositories/task_repository.dart';
 import '../project_controller.dart';
 import '../widgets/create_task_sheet.dart';
+import '../widgets/add_member_sheet.dart';
 
 class ProjectDetailScreen extends ConsumerWidget {
   final ProjectModel project;
@@ -37,15 +38,26 @@ class ProjectDetailScreen extends ConsumerWidget {
           ),
           actions: [
             IconButton(
+              icon: const Icon(Icons.person_add_alt_1_rounded, color: Colors.black87),
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  builder: (context) => AddMemberSheet(project: project),
+                );
+              },
+            ),
+            IconButton(
               icon: const Icon(Icons.add_task_rounded, color: Colors.black87),
               onPressed: () {
                 showModalBottomSheet(
                   context: context,
-                  isScrollControlled: true, // Bắt buộc bật cái này để bàn phím không che form
+                  isScrollControlled: true,
                   shape: const RoundedRectangleBorder(
                     borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                   ),
-                  // Truyền project hiện tại vào Form
                   builder: (context) => CreateTaskSheet(project: project),
                 );
               },
@@ -68,7 +80,6 @@ class ProjectDetailScreen extends ConsumerWidget {
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (err, stack) => Center(child: Text('Lỗi: $err')),
           data: (tasks) {
-            // Lọc Task vào 3 danh sách riêng biệt
             final todoTasks = tasks.where((t) => t.status == TaskStatus.todo).toList();
             final inProgressTasks = tasks.where((t) => t.status == TaskStatus.inProgress).toList();
             final doneTasks = tasks.where((t) => t.status == TaskStatus.done).toList();
@@ -86,7 +97,6 @@ class ProjectDetailScreen extends ConsumerWidget {
     );
   }
 
-  // Giao diện danh sách Task
   Widget _buildTaskList(List<TaskModel> tasks, ColorScheme colorScheme, WidgetRef ref) {
     if (tasks.isEmpty) {
       return Center(
@@ -103,10 +113,20 @@ class ProjectDetailScreen extends ConsumerWidget {
       itemBuilder: (context, index) {
         final task = tasks[index];
 
+        final isOverdue = task.deadline != null &&
+            task.deadline!.isBefore(DateTime.now()) &&
+            task.status != TaskStatus.done;
+
+        final deadlineColor = isOverdue ? Colors.red.shade600 : Colors.grey.shade500;
+        final deadlineIcon = isOverdue ? Icons.warning_amber_rounded : Icons.calendar_today_rounded;
+
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: isOverdue ? BorderSide(color: Colors.red.shade200, width: 1.5) : BorderSide.none,
+          ),
+          elevation: isOverdue ? 4 : 1,
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -118,10 +138,13 @@ class ProjectDetailScreen extends ConsumerWidget {
                     Expanded(
                       child: Text(
                         task.title,
-                        style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.bold),
+                        style: GoogleFonts.nunito(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: isOverdue ? Colors.red.shade900 : Colors.black87,
+                        ),
                       ),
                     ),
-                    // Nút bấm chọn chuyển cột (Thay vì kéo thả dễ lỗi trên mobile)
                     PopupMenuButton<TaskStatus>(
                       icon: Icon(Icons.swap_horiz_rounded, color: colorScheme.primary),
                       tooltip: 'Chuyển trạng thái',
@@ -143,16 +166,27 @@ class ProjectDetailScreen extends ConsumerWidget {
                 const Gap(12),
                 Row(
                   children: [
-                    Icon(Icons.calendar_today_rounded, size: 14, color: Colors.grey.shade500),
+                    Icon(deadlineIcon, size: 14, color: deadlineColor),
                     const Gap(4),
                     Text(
                       task.deadline != null
                           ? '${task.deadline!.day}/${task.deadline!.month}/${task.deadline!.year}'
                           : 'Không có hạn',
-                      style: GoogleFonts.nunito(color: Colors.grey.shade500, fontSize: 12),
+                      style: GoogleFonts.nunito(
+                        color: deadlineColor,
+                        fontSize: 12,
+                        fontWeight: isOverdue ? FontWeight.bold : FontWeight.normal,
+                      ),
                     ),
+                    if (isOverdue) ...[
+                      const Gap(8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(4)),
+                        child: Text('Trễ hạn', style: GoogleFonts.nunito(color: Colors.red.shade700, fontSize: 10, fontWeight: FontWeight.bold)),
+                      )
+                    ],
                     const Spacer(),
-                    // Tạm thời hiển thị icon user, sau này sẽ map với Avatar thật
                     CircleAvatar(
                       radius: 12,
                       backgroundColor: colorScheme.primary.withOpacity(0.2),
