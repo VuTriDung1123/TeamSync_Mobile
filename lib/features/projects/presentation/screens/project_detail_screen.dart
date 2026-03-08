@@ -8,6 +8,7 @@ import '../../data/models/project_model.dart';
 import '../../data/models/task_model.dart';
 import '../../data/repositories/task_repository.dart';
 import '../project_controller.dart';
+import '../widgets/create_task_sheet.dart';
 
 class ProjectDetailScreen extends ConsumerWidget {
   final ProjectModel project;
@@ -38,9 +39,14 @@ class ProjectDetailScreen extends ConsumerWidget {
             IconButton(
               icon: const Icon(Icons.add_task_rounded, color: Colors.black87),
               onPressed: () {
-                // TODO: Gọi BottomSheet tạo Task mới (Làm ở phần sau)
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Tính năng thêm Task đang được xây dựng!')),
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true, // Bắt buộc bật cái này để bàn phím không che form
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  // Truyền project hiện tại vào Form
+                  builder: (context) => CreateTaskSheet(project: project),
                 );
               },
             ),
