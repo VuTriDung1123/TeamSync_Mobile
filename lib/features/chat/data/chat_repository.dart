@@ -7,10 +7,21 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
   return ChatRepository(firestore: FirebaseFirestore.instance);
 });
 
-// Provider lắng nghe Stream tin nhắn
+// Provider lắng nghe tin nhắn trong 1 phòng
 final chatStreamProvider = StreamProvider.family<List<Message>, String>((ref, receiverId) {
   final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
   return ref.watch(chatRepositoryProvider).getMessages(currentUserId, receiverId);
+});
+
+// Provider lắng nghe trạng thái CỦA PHÒNG CHAT (để biết ai đang gõ chữ)
+final chatRoomStreamProvider = StreamProvider.family<Map<String, dynamic>?, String>((ref, receiverId) {
+  final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+  return ref.watch(chatRepositoryProvider).getChatRoomStream(currentUserId, receiverId);
+});
+
+// Provider lấy TẤT CẢ phòng chat của user (Dùng cho màn hình Home)
+final userChatRoomsProvider = StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+  return ref.watch(chatRepositoryProvider).getUserChatRooms();
 });
 
 class ChatRepository {
@@ -18,21 +29,19 @@ class ChatRepository {
 
   ChatRepository({required FirebaseFirestore firestore}) : _firestore = firestore;
 
-  // Thuật toán tạo ID phòng chat 1-1
   String _getChatRoomId(String userId1, String userId2) {
     List<String> ids = [userId1, userId2];
     ids.sort();
     return ids.join('_');
   }
 
-  // 🚀 NÂNG CẤP: Gửi tin nhắn đa phương tiện (Hỗ trợ Text, Ảnh, Video)
+  // 1. GỬI TIN NHẮN (Đã nâng cấp lưu lastMessageReadBy)
   Future<void> sendMessage({
     required String currentUserId,
     required String receiverId,
     required String text,
-    MessageType type = MessageType.text, // Mặc định là text
+    MessageType type = MessageType.text,
     String? mediaUrl,
-    String? replyToId,
   }) async {
     final chatRoomId = _getChatRoomId(currentUserId, receiverId);
 
@@ -43,63 +52,76 @@ class ChatRepository {
       text: text,
       type: type,
       mediaUrl: mediaUrl,
-      replyToId: replyToId,
-      // Vừa gửi xong thì mặc định mình đã "xem" tin nhắn của chính mình
       readBy: [currentUserId],
       createdAt: DateTime.now(),
     );
 
-    // 1. Lưu tin nhắn vào collection
-    await _firestore
-        .collection('chat_rooms')
-        .doc(chatRoomId)
-        .collection('messages')
-        .add(message.toMap());
+    await _firestore.collection('chat_rooms').doc(chatRoomId).collection('messages').add(message.toMap());
 
-    // 2. Cập nhật lastMessage cho phòng chat để hiển thị ở ngoài màn hình chính
     String displayLastMessage = text;
     if (type == MessageType.image) displayLastMessage = 'Đã gửi một ảnh 📸';
-    if (type == MessageType.video) displayLastMessage = 'Đã gửi một video 🎥';
-    if (type == MessageType.audio) displayLastMessage = 'Đã gửi tin nhắn thoại 🎤';
 
+    // Cập nhật thông tin phòng chat ra ngoài Home
     await _firestore.collection('chat_rooms').doc(chatRoomId).set({
+      'roomId': chatRoomId,
       'users': [currentUserId, receiverId],
       'lastMessage': displayLastMessage,
+      'lastMessageSenderId': currentUserId,
+      'lastMessageReadBy': [currentUserId], // Mình vừa gửi thì coi như mình đã đọc
       'lastTimestamp': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
-  // 🚀 TÍNH NĂNG MỚI: Đánh dấu Đã Xem (Seen)
+  // 2. ĐÁNH DẤU ĐÃ XEM (Cho cả tin nhắn & ngoài Home)
   Future<void> markAsRead(String currentUserId, String receiverId, String messageId) async {
     final chatRoomId = _getChatRoomId(currentUserId, receiverId);
 
-    // Thêm UID của mình vào mảng readBy của tin nhắn đó
-    await _firestore
-        .collection('chat_rooms')
-        .doc(chatRoomId)
-        .collection('messages')
-        .doc(messageId)
-        .update({
+    // Đánh dấu đã xem ở chi tiết tin nhắn
+    await _firestore.collection('chat_rooms').doc(chatRoomId).collection('messages').doc(messageId).update({
       'readBy': FieldValue.arrayUnion([currentUserId])
+    });
+
+    // Đánh dấu đã xem ở ngoài Home
+    await _firestore.collection('chat_rooms').doc(chatRoomId).update({
+      'lastMessageReadBy': FieldValue.arrayUnion([currentUserId])
     });
   }
 
-  // LẮNG NGHE tin nhắn (Thêm limit 50 để phân trang cho mượt)
+  // 3. THU HỒI TIN NHẮN
+  Future<void> recallMessage(String currentUserId, String receiverId, String messageId) async {
+    final chatRoomId = _getChatRoomId(currentUserId, receiverId);
+    await _firestore.collection('chat_rooms').doc(chatRoomId).collection('messages').doc(messageId).update({
+      'isDeleted': true,
+      'text': 'Tin nhắn đã bị thu hồi',
+      'mediaUrl': null, // Xóa luôn link ảnh nếu có
+    });
+  }
+
+  // 4. BẬT/TẮT TRẠNG THÁI "ĐANG GÕ..."
+  Future<void> setTypingStatus(String currentUserId, String receiverId, bool isTyping) async {
+    final chatRoomId = _getChatRoomId(currentUserId, receiverId);
+    await _firestore.collection('chat_rooms').doc(chatRoomId).set({
+      'typing': isTyping ? FieldValue.arrayUnion([currentUserId]) : FieldValue.arrayRemove([currentUserId])
+    }, SetOptions(merge: true));
+  }
+
   Stream<List<Message>> getMessages(String currentUserId, String receiverId) {
     final chatRoomId = _getChatRoomId(currentUserId, receiverId);
+    return _firestore.collection('chat_rooms').doc(chatRoomId).collection('messages')
+        .orderBy('createdAt', descending: true).limit(50).snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => Message.fromMap(doc.data(), doc.id)).toList().reversed.toList());
+  }
 
-    return _firestore
-        .collection('chat_rooms')
-        .doc(chatRoomId)
-        .collection('messages')
-        .orderBy('createdAt', descending: true) // Lấy từ mới nhất (để hiển thị dưới cùng)
-        .limit(50)
-        .snapshots()
-        .map((snapshot) {
-      // Vì ListView.builder mặc định xếp từ trên xuống, ta lấy descending: true rồi reverse lại
-      return snapshot.docs.map((doc) {
-        return Message.fromMap(doc.data(), doc.id);
-      }).toList().reversed.toList();
-    });
+  Stream<Map<String, dynamic>?> getChatRoomStream(String currentUserId, String receiverId) {
+    final chatRoomId = _getChatRoomId(currentUserId, receiverId);
+    return _firestore.collection('chat_rooms').doc(chatRoomId).snapshots().map((doc) => doc.data());
+  }
+
+  Stream<List<Map<String, dynamic>>> getUserChatRooms() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    return _firestore.collection('chat_rooms')
+        .where('users', arrayContains: currentUserId)
+        .orderBy('lastTimestamp', descending: true)
+        .snapshots().map((snapshot) => snapshot.docs.map((doc) => doc.data()).toList());
   }
 }

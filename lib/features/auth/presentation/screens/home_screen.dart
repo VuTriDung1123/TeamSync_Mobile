@@ -1,4 +1,5 @@
-  import 'package:flutter/material.dart';
+  import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
   import 'package:flutter_riverpod/flutter_riverpod.dart';
   import 'package:go_router/go_router.dart';
   import 'package:google_fonts/google_fonts.dart';
@@ -6,7 +7,8 @@
 
   // Các file import cần thiết
   import '../../../../core/utils/push_notification_service.dart';
-  import '../../../chat/presentation/screens/chat_screen.dart';
+  import '../../../chat/data/chat_repository.dart';
+import '../../../chat/presentation/screens/chat_screen.dart';
   import '../../../projects/data/models/task_model.dart';
   import '../../../projects/presentation/project_controller.dart';
   import '../../../projects/presentation/widgets/create_project_sheet.dart';
@@ -192,121 +194,97 @@
     }
 
     // ==========================================
-    // WIDGET CON 2: TAB DANH SÁCH ĐỒNG ĐỘI
+    // WIDGET CON 2: TAB ĐỒNG ĐỘI (CHUYỂN THÀNH LỊCH SỬ CHAT)
     // ==========================================
     Widget _buildTeamTab(BuildContext context, WidgetRef ref, ColorScheme colorScheme) {
       final usersAsync = ref.watch(usersStreamProvider);
+      // Lấy thêm danh sách phòng chat từ Repository
+      final chatRoomsAsync = ref.watch(userChatRoomsProvider);
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-            child: Text(
-              'Sẵn sàng kết nối\nvà làm việc cùng nhau! ✨',
-              style: GoogleFonts.nunito(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: Colors.black87,
-                height: 1.3,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-                boxShadow: [
-                  BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -5))
-                ],
-              ),
-              child: usersAsync.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (err, stack) => Center(child: Text('Lỗi tải danh sách: $err')),
-                data: (users) {
-                  if (users.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'Chưa có ai ở đây cả.\nHãy mời thêm bạn bè nhé! 🌸',
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.nunito(color: Colors.grey, fontSize: 16),
+      return usersAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, stack) => Center(child: Text('Lỗi tải danh sách: $err')),
+        data: (users) {
+          return chatRoomsAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, stack) => const Center(child: Text('Lỗi tải tin nhắn')),
+              data: (chatRooms) {
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: users.length,
+                  itemBuilder: (context, index) {
+                    final user = users[index]error: (err, stack) => Center(child: Text('Lỗi tải tin nhắn: $err')),;
+                    final name = user['name'] ?? 'Ẩn danh';
+                    final uid = user['uid'] ?? '';
+                    final avatar = user['avatar'] ?? '';
+
+                    // Tìm phòng chat chung giữa mình và user này
+                    final room = chatRooms.firstWhere(
+                          (r) => (r['users'] as List).contains(uid),
+                      orElse: () => {}, // Nếu chưa từng chat thì trả về rỗng
+                    );
+
+                    String lastMessage = room['lastMessage'] ?? 'Bắt đầu cuộc trò chuyện mới';
+                    List<String> readBy = List<String>.from(room['lastMessageReadBy'] ?? []);
+
+                    // KIỂM TRA CHƯA ĐỌC:
+                    // Có tin nhắn cuối + Mình CHƯA nằm trong danh sách readBy
+                    bool isUnread = room.isNotEmpty && !readBy.contains(currentUserId);
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        leading: CircleAvatar(
+                          radius: 26,
+                          backgroundColor: colorScheme.primary.withOpacity(0.2),
+                          backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                          child: avatar.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?') : null,
+                        ),
+                        title: Text(
+                            name,
+                            style: GoogleFonts.nunito(
+                                fontWeight: isUnread ? FontWeight.w900 : FontWeight.bold, // Tên in đậm nếu chưa đọc
+                                fontSize: 16,
+                                color: Colors.black87
+                            )
+                        ),
+                        subtitle: Text(
+                            lastMessage,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.nunito(
+                              fontSize: 14,
+                              // IN ĐẬM ĐEN THUI NẾU CHƯA ĐỌC GIỐNG MESSENGER
+                              fontWeight: isUnread ? FontWeight.w900 : FontWeight.normal,
+                              color: isUnread ? Colors.black : Colors.grey.shade600,
+                            )
+                        ),
+                        // Chấm xanh nhỏ báo hiệu có tin nhắn mới
+                        trailing: isUnread
+                            ? Container(width: 12, height: 12, decoration: BoxDecoration(color: colorScheme.primary, shape: BoxShape.circle))
+                            : null,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ChatScreen(receiverId: uid, receiverName: name, receiverAvatar: avatar),
+                            ),
+                          );
+                        },
                       ),
                     );
-                  }
-
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(20),
-                    itemCount: users.length,
-                    itemBuilder: (context, index) {
-                      final user = users[index];
-                      final name = user['name'] ?? 'Ẩn danh';
-                      final email = user['email'] ?? '';
-                      final uid = user['uid'] ?? '';
-                      final avatar = user['avatar'] ?? '';
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF5F7).withOpacity(0.5),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: colorScheme.primary.withOpacity(0.1)),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          leading: CircleAvatar(
-                            radius: 26,
-                            backgroundColor: colorScheme.primary.withOpacity(0.2),
-                            backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
-                            child: avatar.isEmpty
-                                ? Text(
-                              name.isNotEmpty ? name[0].toUpperCase() : '?',
-                              style: GoogleFonts.nunito(
-                                color: colorScheme.primary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            )
-                                : null,
-                          ),
-                          title: Text(name, style: GoogleFonts.nunito(fontWeight: FontWeight.w800, fontSize: 16, color: Colors.black87)),
-                          subtitle: Text(email, style: GoogleFonts.nunito(fontSize: 13, color: Colors.grey.shade600)),
-                          trailing: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: colorScheme.primary,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: colorScheme.primary.withOpacity(0.4),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 3),
-                                )
-                              ],
-                            ),
-                            child: const Icon(Icons.chat_bubble_rounded, color: Colors.white, size: 20),
-                          ),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ChatScreen(
-                                  receiverId: uid,
-                                  receiverName: name,
-                                  receiverAvatar: avatar,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
+                  },
+                );
+              }
+          );
+        },
       );
     }
 
