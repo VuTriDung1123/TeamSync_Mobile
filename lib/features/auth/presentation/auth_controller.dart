@@ -1,6 +1,9 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../projects/data/models/task_model.dart';
+import '../../projects/data/repositories/task_repository.dart';
 import '../data/auth_repository.dart';
+
 
 final authControllerProvider = StateNotifierProvider<AuthController, AsyncValue<void>>((ref) {
   return AuthController(authRepository: ref.watch(authRepositoryProvider));
@@ -71,4 +74,11 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
       state = AsyncError(e, st); // Thất bại
     }
   }
+
 }
+
+
+final projectTasksProvider = StreamProvider.family<List<TaskModel>, String>((ref, projectId) {
+  final repository = ref.watch(taskRepositoryProvider);
+  return repository.getProjectTasks(projectId);
+});

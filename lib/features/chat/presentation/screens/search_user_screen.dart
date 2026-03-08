@@ -5,6 +5,9 @@ import 'package:gap/gap.dart';
 import '../../../../features/auth/data/user_repository.dart';
 import 'chat_screen.dart';
 
+// Biến lưu trữ từ khóa do người dùng gõ
+final searchQueryProvider = StateProvider<String>((ref) => '');
+
 class SearchUserScreen extends ConsumerWidget {
   const SearchUserScreen({super.key});
 
@@ -12,9 +15,10 @@ class SearchUserScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    // Lấy từ khóa đang gõ và kết quả tìm kiếm
     final searchQuery = ref.watch(searchQueryProvider);
-    final searchResultsAsync = ref.watch(searchUserProvider(searchQuery));
+
+    // 💡 SỬA Ở ĐÂY: Dùng usersStreamProvider thay vì gọi tìm kiếm trên Firebase
+    final usersAsync = ref.watch(usersStreamProvider);
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFF5F7),
@@ -24,19 +28,17 @@ class SearchUserScreen extends ConsumerWidget {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87),
           onPressed: () {
-            // Xóa trắng từ khóa khi thoát ra để lần sau vào không bị dính chữ cũ
             ref.read(searchQueryProvider.notifier).state = '';
             Navigator.of(context).pop();
           },
         ),
         title: TextField(
-          autofocus: true, // Tự động bật bàn phím
+          autofocus: true,
           onChanged: (value) {
-            // Cập nhật từ khóa mỗi khi người dùng gõ
             ref.read(searchQueryProvider.notifier).state = value;
           },
           decoration: InputDecoration(
-            hintText: 'Nhập Tên hoặc mã UID...',
+            hintText: 'Nhập Tên hoặc Email...',
             hintStyle: GoogleFonts.nunito(color: Colors.grey.shade400),
             border: InputBorder.none,
           ),
@@ -54,18 +56,25 @@ class SearchUserScreen extends ConsumerWidget {
               'Tìm kiếm đồng đội',
               style: GoogleFonts.nunito(fontSize: 18, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
             ),
-            Text(
-              'Có thể tìm bằng Tên hoặc mã UID',
-              style: GoogleFonts.nunito(fontSize: 14, color: Colors.grey.shade500),
-            ),
           ],
         ),
       )
-          : searchResultsAsync.when(
+          : usersAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, stack) => Center(child: Text('Lỗi: $err')),
         data: (users) {
-          if (users.isEmpty) {
+
+          // 💡 SỬA Ở ĐÂY: Logic Lọc (Filter) thủ công bằng Dart
+          final filteredUsers = users.where((user) {
+            final name = (user['name'] ?? '').toString().toLowerCase();
+            final email = (user['email'] ?? '').toString().toLowerCase();
+            final query = searchQuery.toLowerCase();
+
+            // Chỉ lấy những user có Tên hoặc Email chứa từ khóa
+            return name.contains(query) || email.contains(query);
+          }).toList();
+
+          if (filteredUsers.isEmpty) {
             return Center(
               child: Text(
                 'Không tìm thấy ai phù hợp 😥',
@@ -76,9 +85,9 @@ class SearchUserScreen extends ConsumerWidget {
 
           return ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: users.length,
+            itemCount: filteredUsers.length,
             itemBuilder: (context, index) {
-              final user = users[index];
+              final user = filteredUsers[index];
               final name = user['name'] ?? 'Ẩn danh';
               final email = user['email'] ?? '';
               final uid = user['uid'] ?? '';
@@ -97,17 +106,11 @@ class SearchUserScreen extends ConsumerWidget {
                     backgroundColor: colorScheme.primary.withOpacity(0.2),
                     backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
                     child: avatar.isEmpty
-                        ? Text(name[0].toUpperCase(), style: TextStyle(color: colorScheme.primary, fontWeight: FontWeight.bold))
+                        ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: colorScheme.primary, fontWeight: FontWeight.bold))
                         : null,
                   ),
                   title: Text(name, style: GoogleFonts.nunito(fontWeight: FontWeight.bold)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(email, style: GoogleFonts.nunito(fontSize: 12, color: Colors.grey)),
-                      Text('UID: $uid', style: GoogleFonts.nunito(fontSize: 10, color: Colors.grey.shade400)),
-                    ],
-                  ),
+                  subtitle: Text(email, style: GoogleFonts.nunito(fontSize: 12, color: Colors.grey)),
                   trailing: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
@@ -117,14 +120,13 @@ class SearchUserScreen extends ConsumerWidget {
                     child: Text('Chat', style: GoogleFonts.nunito(color: colorScheme.primary, fontWeight: FontWeight.bold)),
                   ),
                   onTap: () {
-                    // Bấm vào kết quả là nhảy thẳng vào Chat luôn
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
                         builder: (context) => ChatScreen(
-                            receiverId: uid,
-                            receiverName: name,
-                            receiverAvatar: avatar,
+                          receiverId: uid,
+                          receiverName: name,
+                          receiverAvatar: avatar,
                         ),
                       ),
                     );
