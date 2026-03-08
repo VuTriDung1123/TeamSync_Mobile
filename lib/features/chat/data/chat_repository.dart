@@ -41,7 +41,7 @@ class ChatRepository {
     required String receiverId,
     required String text,
     MessageType type = MessageType.text,
-    String? mediaUrl,
+    String? mediaUrl, String? replyToId,
   }) async {
     final chatRoomId = _getChatRoomId(currentUserId, receiverId);
 
@@ -54,6 +54,7 @@ class ChatRepository {
       mediaUrl: mediaUrl,
       readBy: [currentUserId],
       createdAt: DateTime.now(),
+      replyToId: replyToId,
     );
 
     await _firestore.collection('chat_rooms').doc(chatRoomId).collection('messages').add(message.toMap());
@@ -93,7 +94,7 @@ class ChatRepository {
     await _firestore.collection('chat_rooms').doc(chatRoomId).collection('messages').doc(messageId).update({
       'isDeleted': true,
       'text': 'Tin nhắn đã bị thu hồi',
-      'mediaUrl': null, // Xóa luôn link ảnh nếu có
+      'mediaUrl': null,
     });
   }
 
@@ -109,7 +110,7 @@ class ChatRepository {
     final chatRoomId = _getChatRoomId(currentUserId, receiverId);
     return _firestore.collection('chat_rooms').doc(chatRoomId).collection('messages')
         .orderBy('createdAt', descending: true).limit(50).snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => Message.fromMap(doc.data(), doc.id)).toList().reversed.toList());
+        .map((snapshot) => snapshot.docs.map((doc) => Message.fromMap(doc.data(), doc.id)).toList());
   }
 
   Stream<Map<String, dynamic>?> getChatRoomStream(String currentUserId, String receiverId) {

@@ -208,14 +208,14 @@ import '../../../chat/presentation/screens/chat_screen.dart';
         data: (users) {
           return chatRoomsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, stack) => const Center(child: Text('Lỗi tải tin nhắn')),
+              error: (err, stack) => Center(child: Text('Lỗi tải tin nhắn: $err')),
               data: (chatRooms) {
 
                 return ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: users.length,
                   itemBuilder: (context, index) {
-                    final user = users[index]error: (err, stack) => Center(child: Text('Lỗi tải tin nhắn: $err')),;
+                    final user = users[index];
                     final name = user['name'] ?? 'Ẩn danh';
                     final uid = user['uid'] ?? '';
                     final avatar = user['avatar'] ?? '';
