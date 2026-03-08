@@ -8,16 +8,16 @@ import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-// Đảm bảo import đúng đường dẫn đến user_repository của bạn
 import '../../../../features/auth/data/user_repository.dart';
 import '../../data/chat_repository.dart';
 import '../../domain/models/message_model.dart';
+import 'chat_settings_screen.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String receiverId;
   final String receiverName;
   final String receiverAvatar;
-  final bool isGroup; // 🚀 CỜ PHÂN BIỆT NHÓM VÀ 1-1
+  final bool isGroup;
 
   const ChatScreen({
     super.key,
@@ -37,9 +37,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _isUploadingImage = false;
   bool _isTyping = false;
   Message? _replyingTo;
+  Message? _editingMessage; // 🚀 MỚI: Theo dõi tin nhắn đang được chỉnh sửa
 
   final Map<String, GlobalKey> _messageKeys = {};
   String? _highlightedMessageId;
+
+  // Các Emoji hỗ trợ
+  final List<String> _emojis = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 
   void _scrollToMessage(String messageId) {
     final key = _messageKeys[messageId];
@@ -55,9 +59,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (mounted) setState(() => _highlightedMessageId = null);
       });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tin nhắn ở quá xa, không thể cuộn tới!')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tin nhắn ở quá xa, không thể cuộn tới!')));
     }
   }
 
@@ -86,7 +88,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _updateTypingStatus(bool isTyping) {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    // Truyền thêm cờ isGroup
     ref.read(chatRepositoryProvider).setTypingStatus(currentUserId, widget.receiverId, isTyping, widget.isGroup);
   }
 
@@ -95,18 +96,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (text.isEmpty) return;
 
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    ref.read(chatRepositoryProvider).sendMessage(
-      currentUserId: currentUserId,
-      receiverId: widget.receiverId,
-      text: text,
-      type: MessageType.text,
-      replyToId: _replyingTo?.id,
-      isGroup: widget.isGroup, // 🚀 TRUYỀN CỜ isGroup
-    );
+
+    // 🚀 LƯU Ý: KIỂM TRA XEM CÓ ĐANG CHỈNH SỬA KHÔNG
+    if (_editingMessage != null) {
+      ref.read(chatRepositoryProvider).editMessage(
+          currentUserId, widget.receiverId, _editingMessage!.id, text, widget.isGroup
+      );
+      setState(() => _editingMessage = null);
+    } else {
+      // Gửi tin nhắn mới bình thường
+      ref.read(chatRepositoryProvider).sendMessage(
+        currentUserId: currentUserId, receiverId: widget.receiverId,
+        text: text, type: MessageType.text, replyToId: _replyingTo?.id, isGroup: widget.isGroup,
+      );
+    }
+
     _messageController.clear();
     setState(() => _replyingTo = null);
 
-    if (_scrollController.hasClients) {
+    if (_scrollController.hasClients && _editingMessage == null) {
       _scrollController.animateTo(0.0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     }
   }
@@ -127,11 +135,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final response = await dio.post('https://api.cloudinary.com/v1_1/${dotenv.env['CLOUDINARY_CLOUD_NAME']}/image/upload', data: formData);
       await ref.read(chatRepositoryProvider).sendMessage(
         currentUserId: FirebaseAuth.instance.currentUser?.uid ?? '',
-        receiverId: widget.receiverId,
-        text: 'Đã gửi một ảnh',
-        type: MessageType.image,
-        mediaUrl: response.data['secure_url'],
-        isGroup: widget.isGroup, // 🚀 TRUYỀN CỜ isGroup
+        receiverId: widget.receiverId, text: 'Đã gửi một ảnh', type: MessageType.image,
+        mediaUrl: response.data['secure_url'], isGroup: widget.isGroup,
       );
     } catch (e) {
       if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi ảnh: $e')));
@@ -140,26 +145,94 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  // 🚀 MỚI: MENU CHỨC NĂNG XỊN SÒ (REACTION, EDIT, PIN)
   void _showMessageMenu(Message message, bool isMe) {
-    if (!isMe || message.isDeleted) return;
+    if (message.isDeleted) return;
+
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.delete_sweep_rounded, color: Colors.red),
-              title: const Text('Thu hồi tin nhắn', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-              onTap: () {
-                Navigator.pop(context);
-                final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-                // Truyền thêm cờ isGroup
-                ref.read(chatRepositoryProvider).recallMessage(currentUserId, widget.receiverId, message.id, widget.isGroup);
-              },
-            ),
-          ],
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 1. THANH REACTION EMOJI
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(30)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: _emojis.map((emoji) => GestureDetector(
+                    onTap: () {
+                      Navigator.pop(context);
+                      // Nếu bấm lại emoji cũ thì xóa thả tim, bấm cái mới thì thả
+                      if (message.reactions[currentUserId] == emoji) {
+                        ref.read(chatRepositoryProvider).removeReaction(currentUserId, widget.receiverId, message.id, widget.isGroup);
+                      } else {
+                        ref.read(chatRepositoryProvider).reactToMessage(currentUserId, widget.receiverId, message.id, emoji, widget.isGroup);
+                      }
+                    },
+                    child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                  )).toList(),
+                ),
+              ),
+              const Gap(16),
+
+              // 2. TRẢ LỜI
+              ListTile(
+                leading: const Icon(Icons.reply_rounded, color: Colors.blue),
+                title: const Text('Trả lời', style: TextStyle(fontWeight: FontWeight.bold)),
+                onTap: () {
+                  Navigator.pop(context);
+                  setState(() => _replyingTo = message);
+                },
+              ),
+
+              // 3. CHỈNH SỬA (Chỉ áp dụng cho text của mình)
+              if (isMe && message.type == MessageType.text)
+                ListTile(
+                  leading: const Icon(Icons.edit_rounded),
+                  title: const Text('Chỉnh sửa', style: TextStyle(fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      _editingMessage = message;
+                      _replyingTo = null; // Tắt reply nếu đang bật
+                      _messageController.text = message.text; // Đổ text cũ vào ô nhập
+                    });
+                  },
+                ),
+
+              // 4. GHIM TIN NHẮN
+              ListTile(
+                leading: Icon(message.isPinned ? Icons.push_pin_outlined : Icons.push_pin_rounded, color: Colors.orange),
+                title: Text(message.isPinned ? 'Bỏ ghim tin nhắn' : 'Ghim tin nhắn', style: const TextStyle(fontWeight: FontWeight.bold)),
+                onTap: () {
+                  Navigator.pop(context);
+                  ref.read(chatRepositoryProvider).togglePinMessage(currentUserId, widget.receiverId, message.id, widget.isGroup, !message.isPinned);
+                },
+              ),
+
+              // 5. THU HỒI
+              if (isMe)
+                ListTile(
+                  leading: const Icon(Icons.delete_sweep_rounded, color: Colors.red),
+                  title: const Text('Thu hồi tin nhắn', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    ref.read(chatRepositoryProvider).recallMessage(currentUserId, widget.receiverId, message.id, widget.isGroup);
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -171,18 +244,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final currentUser = FirebaseAuth.instance.currentUser;
     final currentUserId = currentUser?.uid ?? '';
 
-    // 🚀 GHÉP CHUỖI ĐỂ TRUYỀN VÀO PROVIDER PHÂN BIỆT NHÓM VÀ 1-1
     final combinedId = widget.isGroup ? "group_${widget.receiverId}" : "single_${widget.receiverId}";
-
     final messagesAsync = ref.watch(chatStreamProvider(combinedId));
     final roomDataAsync = ref.watch(chatRoomStreamProvider(combinedId));
-    final usersAsync = ref.watch(usersStreamProvider); // Để dò tìm Avatar trong Group
+    final usersAsync = ref.watch(usersStreamProvider);
 
     bool isReceiverTyping = false;
     roomDataAsync.whenData((room) {
       if (room != null && room['typing'] != null) {
         final typingList = List<String>.from(room['typing']);
-        // Trong nhóm, nếu có ai đó đang gõ (khác mình) thì bật chữ Đang gõ...
         if (typingList.any((uid) => uid != currentUserId)) isReceiverTyping = true;
       }
     });
@@ -190,69 +260,108 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFFFF5F7),
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
+        backgroundColor: Colors.white, elevation: 1,
         leading: IconButton(icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87), onPressed: () => Navigator.pop(context)),
         title: Row(
           children: [
             CircleAvatar(
               backgroundColor: colorScheme.primary.withOpacity(0.2),
               backgroundImage: widget.receiverAvatar.isNotEmpty ? NetworkImage(widget.receiverAvatar) : null,
-              child: widget.receiverAvatar.isEmpty
-                  ? (widget.isGroup ? Icon(Icons.group, color: colorScheme.primary) : Text(widget.receiverName[0].toUpperCase()))
-                  : null,
+              child: widget.receiverAvatar.isEmpty ? (widget.isGroup ? Icon(Icons.group, color: colorScheme.primary) : Text(widget.receiverName[0].toUpperCase())) : null,
             ),
             const Gap(12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(widget.receiverName, style: GoogleFonts.nunito(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18)),
-                if (isReceiverTyping)
-                  Text('Đang gõ...', style: GoogleFonts.nunito(color: colorScheme.primary, fontSize: 12, fontWeight: FontWeight.w600, fontStyle: FontStyle.italic)),
+                if (isReceiverTyping) Text('Đang gõ...', style: GoogleFonts.nunito(color: colorScheme.primary, fontSize: 12, fontWeight: FontWeight.w600, fontStyle: FontStyle.italic)),
               ],
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline_rounded, color: Colors.black87, size: 28),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ChatSettingsScreen(
+                    targetId: widget.receiverId,
+                    isGroup: widget.isGroup,
+                  ),
+                ),
+              );
+            },
+          ),
+          const Gap(8),
+        ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: messagesAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, stack) => const Center(child: Text('Lỗi tải tin nhắn')),
-              data: (messages) {
-                return ListView.builder(
-                  reverse: true,
-                  controller: _scrollController,
+      body: messagesAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, stack) => const Center(child: Text('Lỗi tải tin nhắn')),
+        data: (messages) {
+
+          // 🚀 LỌC TÌM TIN NHẮN ĐANG GHIM
+          final pinnedMessages = messages.where((m) => m.isPinned && !m.isDeleted).toList();
+
+          return Column(
+            children: [
+              // 🚀 THANH HIỂN THỊ TIN NHẮN GHIM
+              if (pinnedMessages.isNotEmpty)
+                GestureDetector(
+                  onTap: () => _scrollToMessage(pinnedMessages.first.id), // Bấm vào nhảy tới chỗ ghim
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(color: Colors.orange.shade50, border: Border(bottom: BorderSide(color: Colors.orange.shade200))),
+                    child: Row(
+                      children: [
+                        Icon(Icons.push_pin_rounded, color: Colors.orange.shade700, size: 20),
+                        const Gap(12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Tin nhắn đã ghim', style: GoogleFonts.nunito(color: Colors.orange.shade900, fontWeight: FontWeight.bold, fontSize: 12)),
+                              Text(
+                                pinnedMessages.first.type == MessageType.image ? '📸 Hình ảnh' : pinnedMessages.first.text,
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.nunito(color: Colors.black87, fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              Expanded(
+                child: ListView.builder(
+                  reverse: true, controller: _scrollController,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final message = messages[index];
                     final isMe = message.senderId == currentUserId;
 
-                    // Đánh dấu đã đọc
                     if (!isMe && !message.readBy.contains(currentUserId)) {
                       Future.microtask(() => ref.read(chatRepositoryProvider).markAsRead(currentUserId, widget.receiverId, message.id, widget.isGroup));
                     }
 
                     Message? repliedMsg;
-                    if (message.replyToId != null) {
-                      repliedMsg = messages.where((m) => m.id == message.replyToId).firstOrNull;
-                    }
+                    if (message.replyToId != null) repliedMsg = messages.where((m) => m.id == message.replyToId).firstOrNull;
 
                     final isLastMessage = index == 0;
                     _messageKeys.putIfAbsent(message.id, () => GlobalKey());
 
-                    // 🚀 LOGIC TÌM TÊN VÀ AVATAR TRONG NHÓM
                     String senderName = isMe ? 'Tôi' : widget.receiverName;
                     String senderAvatar = isMe ? (currentUser?.photoURL ?? '') : widget.receiverAvatar;
 
                     if (!isMe && widget.isGroup) {
                       final usersList = usersAsync.value ?? [];
-                      final senderInfo = usersList.firstWhere(
-                            (u) => u['uid'] == message.senderId,
-                        orElse: () => <String, dynamic>{}, // Fix lỗi null nếu không tìm thấy
-                      );
+                      final senderInfo = usersList.firstWhere((u) => u['uid'] == message.senderId, orElse: () => <String, dynamic>{});
                       senderName = senderInfo['name'] ?? 'Thành viên';
                       senderAvatar = senderInfo['avatar'] ?? '';
                     }
@@ -260,87 +369,68 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     return AnimatedContainer(
                       key: _messageKeys[message.id],
                       duration: const Duration(milliseconds: 500),
-                      color: _highlightedMessageId == message.id
-                          ? colorScheme.primary.withOpacity(0.2)
-                          : Colors.transparent,
+                      color: _highlightedMessageId == message.id ? colorScheme.primary.withOpacity(0.2) : Colors.transparent,
                       child: GestureDetector(
                         onLongPress: () => _showMessageMenu(message, isMe),
                         child: Dismissible(
                           key: ValueKey(message.id),
                           direction: DismissDirection.endToStart,
                           confirmDismiss: (direction) async {
-                            setState(() => _replyingTo = message);
+                            setState(() { _replyingTo = message; _editingMessage = null; });
                             return false;
                           },
                           background: Container(
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.only(right: 20),
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(color: colorScheme.primary.withOpacity(0.2), shape: BoxShape.circle),
-                              child: Icon(Icons.reply_rounded, color: colorScheme.primary),
-                            ),
+                            alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 20),
+                            child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: colorScheme.primary.withOpacity(0.2), shape: BoxShape.circle), child: Icon(Icons.reply_rounded, color: colorScheme.primary)),
                           ),
                           child: ChatBubble(
-                            message: message,
-                            isMe: isMe,
-                            avatarUrl: senderAvatar, // Đã cập nhật
-                            senderName: senderName,  // Đã cập nhật
-                            receiverName: widget.receiverName,
-                            // Đã xem: Trong 1-1 thì chỉ cần đối phương đọc. Trong Group thì chỉ cần có >1 người đọc (kể cả mình) là hiện
+                            message: message, isMe: isMe, avatarUrl: senderAvatar, senderName: senderName, receiverName: widget.receiverName,
                             isSeen: widget.isGroup ? (message.readBy.length > 1) : (isMe && message.readBy.contains(widget.receiverId)),
-                            showSeenStatus: isLastMessage && isMe,
-                            repliedMessage: repliedMsg,
-                            onReplyTap: () {
-                              if (message.replyToId != null) {
-                                _scrollToMessage(message.replyToId!);
-                              }
-                            },
+                            showSeenStatus: isLastMessage && isMe, repliedMessage: repliedMsg,
+                            onReplyTap: () { if (message.replyToId != null) _scrollToMessage(message.replyToId!); },
                           ),
                         ),
                       ),
                     );
                   },
-                );
-              },
-            ),
-          ),
-          _buildMessageInput(colorScheme),
-        ],
+                ),
+              ),
+              _buildMessageInput(colorScheme),
+            ],
+          );
+        },
       ),
     );
   }
 
   Widget _buildMessageInput(ColorScheme colorScheme) {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
-      ),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))]),
       child: SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (_replyingTo != null)
+            // 🚀 HIỂN THỊ TRẠNG THÁI ĐANG TRẢ LỜI HOẶC CHỈNH SỬA
+            if (_replyingTo != null || _editingMessage != null)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  border: Border(left: BorderSide(color: colorScheme.primary, width: 4)),
-                ),
+                decoration: BoxDecoration(color: Colors.grey.shade100, border: Border(left: BorderSide(color: _editingMessage != null ? Colors.orange : colorScheme.primary, width: 4))),
                 child: Row(
                   children: [
+                    Icon(_editingMessage != null ? Icons.edit_rounded : Icons.reply_rounded, color: _editingMessage != null ? Colors.orange : colorScheme.primary, size: 20),
+                    const Gap(12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _replyingTo!.senderId == FirebaseAuth.instance.currentUser?.uid ? 'Đang trả lời chính mình' : 'Đang trả lời ${widget.isGroup ? "thành viên" : widget.receiverName}',
-                            style: GoogleFonts.nunito(fontWeight: FontWeight.bold, color: colorScheme.primary, fontSize: 12),
+                            _editingMessage != null ? 'Đang chỉnh sửa tin nhắn'
+                                : (_replyingTo!.senderId == FirebaseAuth.instance.currentUser?.uid ? 'Đang trả lời chính mình' : 'Đang trả lời ${widget.isGroup ? "thành viên" : widget.receiverName}'),
+                            style: GoogleFonts.nunito(fontWeight: FontWeight.bold, color: _editingMessage != null ? Colors.orange : colorScheme.primary, fontSize: 12),
                           ),
                           const Gap(4),
                           Text(
-                            _replyingTo!.type == MessageType.image ? '📸 Hình ảnh' : _replyingTo!.text,
+                            _editingMessage != null ? _editingMessage!.text : (_replyingTo!.type == MessageType.image ? '📸 Hình ảnh' : _replyingTo!.text),
                             maxLines: 1, overflow: TextOverflow.ellipsis,
                             style: GoogleFonts.nunito(color: Colors.grey.shade700, fontSize: 14),
                           ),
@@ -349,7 +439,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                     IconButton(
                       icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
-                      onPressed: () => setState(() => _replyingTo = null),
+                      onPressed: () => setState(() { _replyingTo = null; _editingMessage = null; _messageController.clear(); }),
                     ),
                   ],
                 ),
@@ -359,10 +449,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  IconButton(
-                    icon: _isUploadingImage ? const SizedBox(width:20,height:20,child:CircularProgressIndicator()) : Icon(Icons.image_rounded, color: colorScheme.primary),
-                    onPressed: _isUploadingImage ? null : _pickAndUploadImage,
-                  ),
+                  if (_editingMessage == null) // Nếu đang edit thì giấu nút gửi ảnh đi
+                    IconButton(
+                      icon: _isUploadingImage ? const SizedBox(width:20,height:20,child:CircularProgressIndicator()) : Icon(Icons.image_rounded, color: colorScheme.primary),
+                      onPressed: _isUploadingImage ? null : _pickAndUploadImage,
+                    ),
                   Expanded(
                     child: TextField(
                       controller: _messageController,
@@ -374,7 +465,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                     ),
                   ),
-                  IconButton(icon: Icon(Icons.send_rounded, color: colorScheme.primary), onPressed: _sendMessage),
+                  IconButton(icon: Icon(_editingMessage != null ? Icons.check_circle_rounded : Icons.send_rounded, color: _editingMessage != null ? Colors.orange : colorScheme.primary), onPressed: _sendMessage),
                 ],
               ),
             ),
@@ -397,16 +488,8 @@ class ChatBubble extends StatelessWidget {
   final VoidCallback? onReplyTap;
 
   const ChatBubble({
-    super.key,
-    required this.message,
-    required this.isMe,
-    required this.avatarUrl,
-    required this.senderName,
-    required this.receiverName,
-    required this.isSeen,
-    required this.showSeenStatus,
-    this.repliedMessage,
-    this.onReplyTap,
+    super.key, required this.message, required this.isMe, required this.avatarUrl, required this.senderName,
+    required this.receiverName, required this.isSeen, required this.showSeenStatus, this.repliedMessage, this.onReplyTap,
   });
 
   @override
@@ -426,6 +509,12 @@ class ChatBubble extends StatelessWidget {
           ),
         ),
       );
+    }
+
+    // 🚀 Lọc danh sách Reaction để hiển thị (Nhóm các emoji giống nhau lại)
+    Map<String, int> reactionCounts = {};
+    for (var emoji in message.reactions.values) {
+      reactionCounts[emoji] = (reactionCounts[emoji] ?? 0) + 1;
     }
 
     return Padding(
@@ -459,50 +548,65 @@ class ChatBubble extends StatelessWidget {
                             children: [
                               Icon(Icons.reply_rounded, size: 14, color: Colors.grey.shade600),
                               const Gap(4),
-                              Text(
-                                isMe
-                                    ? 'Bạn đã trả lời ${repliedMessage!.senderId == message.senderId ? "chính mình" : receiverName}'
-                                    : '$senderName đã trả lời',
-                                style: GoogleFonts.nunito(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
-                              ),
+                              Text(isMe ? 'Bạn đã trả lời ${repliedMessage!.senderId == message.senderId ? "chính mình" : receiverName}' : '$senderName đã trả lời', style: GoogleFonts.nunito(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
                             ],
                           ),
                         ),
                         Container(
-                          margin: const EdgeInsets.only(bottom: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: isMe ? colorScheme.primary.withOpacity(0.15) : Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Text(
-                            repliedMessage!.type == MessageType.image ? '📸 Hình ảnh' : repliedMessage!.text,
-                            maxLines: 2, overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.nunito(fontSize: 14, color: isMe ? Colors.black87 : Colors.grey.shade800),
-                          ),
+                          margin: const EdgeInsets.only(bottom: 4), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(color: isMe ? colorScheme.primary.withOpacity(0.15) : Colors.grey.shade300, borderRadius: BorderRadius.circular(16)),
+                          child: Text(repliedMessage!.type == MessageType.image ? '📸 Hình ảnh' : repliedMessage!.text, maxLines: 2, overflow: TextOverflow.ellipsis, style: GoogleFonts.nunito(fontSize: 14, color: isMe ? Colors.black87 : Colors.grey.shade800)),
                         ),
                       ],
                     ),
                   ),
 
-                Container(
-                  padding: message.type == MessageType.image ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: message.type == MessageType.image ? Colors.transparent : (isMe ? colorScheme.primary : Colors.white),
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(20),
-                      topRight: const Radius.circular(20),
-                      bottomLeft: isMe ? const Radius.circular(20) : const Radius.circular(4),
-                      bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(20),
+                // 🚀 BỌC STACK ĐỂ ĐÍNH KÈM THẢ TIM XUỐNG DƯỚI GÓC
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      padding: message.type == MessageType.image ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: message.type == MessageType.image ? Colors.transparent : (isMe ? colorScheme.primary : Colors.white),
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(20), topRight: const Radius.circular(20),
+                          bottomLeft: isMe ? const Radius.circular(20) : const Radius.circular(4),
+                          bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(20),
+                        ),
+                        boxShadow: message.type == MessageType.image ? [] : [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))],
+                      ),
+                      child: message.type == MessageType.image
+                          ? ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.network(message.mediaUrl ?? '', width: 220, fit: BoxFit.cover))
+                          : Text(message.text, style: GoogleFonts.nunito(color: isMe ? Colors.white : Colors.black87, fontSize: 16)),
                     ),
-                    boxShadow: message.type == MessageType.image ? [] : [
-                      BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))
-                    ],
-                  ),
-                  child: message.type == MessageType.image
-                      ? ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.network(message.mediaUrl ?? '', width: 220, fit: BoxFit.cover))
-                      : Text(message.text, style: GoogleFonts.nunito(color: isMe ? Colors.white : Colors.black87, fontSize: 16)),
+
+                    // 🚀 HIỂN THỊ CÁC REACTION
+                    if (reactionCounts.isNotEmpty)
+                      Positioned(
+                        bottom: -10,
+                        right: isMe ? 10 : null,
+                        left: isMe ? null : 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, 2))],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: reactionCounts.entries.map((e) {
+                              return Text('${e.key} ${e.value > 1 ? e.value : ""}'.trim(), style: const TextStyle(fontSize: 12));
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
+
+                // Thêm 10px khoảng trống nếu có reaction để không bị đè lên time
+                if (reactionCounts.isNotEmpty) const Gap(12),
 
                 Padding(
                   padding: const EdgeInsets.only(top: 4, left: 4, right: 4),
@@ -510,6 +614,13 @@ class ChatBubble extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(timeString, style: GoogleFonts.nunito(fontSize: 10, color: Colors.grey.shade500)),
+
+                      // 🚀 HIỂN THỊ (đã chỉnh sửa)
+                      if (message.isEdited) ...[
+                        const Gap(4),
+                        Text('(đã chỉnh sửa)', style: GoogleFonts.nunito(fontSize: 10, color: Colors.grey.shade400, fontStyle: FontStyle.italic)),
+                      ],
+
                       if (showSeenStatus) ...[
                         const Gap(6),
                         Icon(isSeen ? Icons.done_all_rounded : Icons.check_circle_outline_rounded, size: 14, color: isSeen ? colorScheme.primary : Colors.grey.shade500),
@@ -532,12 +643,9 @@ class ChatBubble extends StatelessWidget {
 
   Widget _buildAvatar(ColorScheme colorScheme) {
     return CircleAvatar(
-      radius: 16,
-      backgroundColor: colorScheme.primary.withOpacity(0.2),
+      radius: 16, backgroundColor: colorScheme.primary.withOpacity(0.2),
       backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-      child: avatarUrl.isEmpty
-          ? Text(senderName.isNotEmpty ? senderName[0].toUpperCase() : '?', style: GoogleFonts.nunito(fontSize: 14, color: colorScheme.primary, fontWeight: FontWeight.bold))
-          : null,
+      child: avatarUrl.isEmpty ? Text(senderName.isNotEmpty ? senderName[0].toUpperCase() : '?', style: GoogleFonts.nunito(fontSize: 14, color: colorScheme.primary, fontWeight: FontWeight.bold)) : null,
     );
   }
 }

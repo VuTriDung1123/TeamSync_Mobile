@@ -1,18 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Định nghĩa các loại tin nhắn
-enum MessageType { text, image, video, audio }
+enum MessageType { text, image, video, audio, file }
 
 class Message {
   final String id;
   final String senderId;
-  final String receiverId; // Đối với chat nhóm thì đây là groupId
+  final String receiverId;
   final String text;
-  final MessageType type; // Phân loại text hay media
-  final String? mediaUrl; // Link ảnh, video, hoặc voice từ Cloudinary
-  final String? replyToId; // ID của tin nhắn đang được reply (nếu có)
-  final bool isDeleted; // Trạng thái thu hồi tin nhắn
-  final List<String> readBy; // Danh sách UID những người đã xem tin nhắn này
+  final MessageType type;
+  final String? mediaUrl;
+  final String? replyToId;
+  final bool isDeleted; // Thu hồi
+  final bool isEdited; // 🚀 MỚI: Đánh dấu đã chỉnh sửa
+  final bool isPinned; // 🚀 MỚI: Đánh dấu tin nhắn ghim
+  final Map<String, String> reactions; // 🚀 MỚI: Map lưu trữ <UID, Emoji> (VD: {'uid123': '❤️'})
+  final List<String> readBy;
   final DateTime createdAt;
 
   Message({
@@ -24,6 +26,9 @@ class Message {
     this.mediaUrl,
     this.replyToId,
     this.isDeleted = false,
+    this.isEdited = false,
+    this.isPinned = false,
+    this.reactions = const {},
     this.readBy = const [],
     required this.createdAt,
   });
@@ -41,6 +46,10 @@ class Message {
       mediaUrl: map['mediaUrl'],
       replyToId: map['replyToId'],
       isDeleted: map['isDeleted'] ?? false,
+      isEdited: map['isEdited'] ?? false,
+      isPinned: map['isPinned'] ?? false,
+      // Ép kiểu an toàn cho Map reactions
+      reactions: Map<String, String>.from(map['reactions'] ?? {}),
       readBy: List<String>.from(map['readBy'] ?? []),
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -55,6 +64,9 @@ class Message {
       'mediaUrl': mediaUrl,
       'replyToId': replyToId,
       'isDeleted': isDeleted,
+      'isEdited': isEdited,
+      'isPinned': isPinned,
+      'reactions': reactions,
       'readBy': readBy,
       'createdAt': FieldValue.serverTimestamp(),
     };
