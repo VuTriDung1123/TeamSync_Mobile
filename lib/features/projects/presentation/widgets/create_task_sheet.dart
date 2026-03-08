@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart'; // Thêm thư viện này để format ngày tháng
+import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../data/models/project_model.dart';
 import '../../data/models/task_model.dart';
 import '../../data/repositories/task_repository.dart';
-import '../../../auth/data/user_repository.dart'; // Để lấy danh sách user từ Firestore
+import '../../../../features/auth/data/user_repository.dart';
 
 class CreateTaskSheet extends ConsumerStatefulWidget {
   final ProjectModel project;
 
-  // Phải truyền Project vào để biết Task này thuộc về dự án nào
   const CreateTaskSheet({super.key, required this.project});
 
   @override
@@ -22,8 +22,8 @@ class _CreateTaskSheetState extends ConsumerState<CreateTaskSheet> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
 
-  String? _selectedAssigneeId; // UID của người được giao việc
-  DateTime? _selectedDeadline; // Hạn chót
+  String? _selectedAssigneeId; // UI tạm thời vẫn chọn 1 người cho nhanh
+  DateTime? _selectedDeadline;
   bool _isLoading = false;
 
   @override
@@ -33,14 +33,12 @@ class _CreateTaskSheetState extends ConsumerState<CreateTaskSheet> {
     super.dispose();
   }
 
-  // Hàm mở lịch chọn ngày
   Future<void> _pickDeadline() async {
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now().add(const Duration(days: 1)),
       firstDate: DateTime.now(),
       lastDate: DateTime(2030),
-      // Đổi màu bộ chọn ngày cho hợp tone Sakura của app
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -59,26 +57,32 @@ class _CreateTaskSheetState extends ConsumerState<CreateTaskSheet> {
     }
   }
 
-  // Hàm đẩy dữ liệu lên Firebase
   Future<void> _submit() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
 
     setState(() => _isLoading = true);
     try {
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+
       final newTask = TaskModel(
-        id: '', // Firebase tự gen
+        id: '',
         projectId: widget.project.id,
         title: title,
         description: _descController.text.trim(),
-        status: TaskStatus.todo, // Vừa tạo thì mặc định rớt vào cột "Cần làm"
-        assigneeId: _selectedAssigneeId,
+        status: TaskStatus.todo,
+        priority: TaskPriority.medium, // 🚀 Thêm Mức độ ưu tiên mặc định
+
+        // 🚀 QUAN TRỌNG: Chuyển 1 người được chọn thành Mảng (List) để khớp Model mới
+        assigneeIds: _selectedAssigneeId != null ? [_selectedAssigneeId!] : [],
+
         deadline: _selectedDeadline,
         createdAt: DateTime.now(),
+        createdBy: currentUserId,
       );
 
       await ref.read(taskRepositoryProvider).createTask(newTask);
-      if (mounted) Navigator.pop(context); // Tắt form
+      if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
     } finally {
@@ -89,13 +93,11 @@ class _CreateTaskSheetState extends ConsumerState<CreateTaskSheet> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-
-    // Lấy danh sách thành viên từ Riverpod
     final usersAsync = ref.watch(usersStreamProvider);
 
     return Padding(
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom, // Đẩy form lên khi có bàn phím ảo
+        bottom: MediaQuery.of(context).viewInsets.bottom,
         left: 24, right: 24, top: 24,
       ),
       child: SingleChildScrollView(
@@ -106,7 +108,6 @@ class _CreateTaskSheetState extends ConsumerState<CreateTaskSheet> {
             Text('Thêm thẻ công việc', style: GoogleFonts.nunito(fontSize: 24, fontWeight: FontWeight.bold)),
             const Gap(20),
 
-            // 1. Tiêu đề
             TextField(
               controller: _titleController,
               autofocus: true,
@@ -118,7 +119,6 @@ class _CreateTaskSheetState extends ConsumerState<CreateTaskSheet> {
             ),
             const Gap(16),
 
-            // 2. Mô tả
             TextField(
               controller: _descController,
               maxLines: 2,
@@ -130,10 +130,9 @@ class _CreateTaskSheetState extends ConsumerState<CreateTaskSheet> {
             ),
             const Gap(16),
 
-            // 3. Chọn người phụ trách
+            // 🚀 NÚT GIAO CHO AI ĐÃ QUAY TRỞ LẠI
             usersAsync.when(
               data: (users) {
-                // Chỉ lấy những ai nằm trong danh sách thành viên dự án
                 final projectMembers = users.where((u) => widget.project.memberIds.contains(u['uid'])).toList();
 
                 return DropdownButtonFormField<String>(
@@ -157,7 +156,6 @@ class _CreateTaskSheetState extends ConsumerState<CreateTaskSheet> {
             ),
             const Gap(16),
 
-            // 4. Chọn Hạn chót (Deadline)
             InkWell(
               onTap: _pickDeadline,
               borderRadius: BorderRadius.circular(12),
@@ -187,7 +185,6 @@ class _CreateTaskSheetState extends ConsumerState<CreateTaskSheet> {
             ),
             const Gap(24),
 
-            // 5. Nút Submit
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(

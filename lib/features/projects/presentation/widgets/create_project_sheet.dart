@@ -44,7 +44,7 @@ class _CreateProjectSheetState extends ConsumerState<CreateProjectSheet> {
         colorHex: _selectedColor,
         ownerId: uid,
         memberIds: [uid], // Khởi tạo thì mình là thành viên đầu tiên
-        createdAt: DateTime.now(),
+        createdAt: DateTime.now(), createdBy: '',
       );
 
       await ref.read(projectRepositoryProvider).createProject(newProject);

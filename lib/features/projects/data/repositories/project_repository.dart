@@ -47,4 +47,19 @@ class ProjectRepository {
     await _firestore.collection('projects').doc(projectId).delete();
     // (Mở rộng sau: Khi xóa Project thì nên xóa luôn các Task bên trong nó)
   }
+
+
+  // 🚀 THÊM THÀNH VIÊN VÀO DỰ ÁN
+  Future<void> addMemberToProject(String projectId, String userId) async {
+    await _firestore.collection('projects').doc(projectId).update({
+      'memberIds': FieldValue.arrayUnion([userId])
+    });
+  }
+
+  // 🚀 XÓA THÀNH VIÊN KHỎI DỰ ÁN
+  Future<void> removeMemberFromProject(String projectId, String userId) async {
+    await _firestore.collection('projects').doc(projectId).update({
+      'memberIds': FieldValue.arrayRemove([userId])
+    });
+  }
 }

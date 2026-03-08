@@ -1,43 +1,80 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Định nghĩa 3 trạng thái của bảng Kanban
-enum TaskStatus { todo, inProgress, done }
+enum TaskStatus { todo, inProgress, review, done }
+enum TaskPriority { low, medium, high } // 🚀 MỚI: Mức độ ưu tiên
+
+// 🚀 MỚI: Model cho Checklist con (Ví dụ: Các bước nhỏ trong 1 Task)
+class ChecklistItem {
+  String id;
+  String title;
+  bool isDone;
+
+  ChecklistItem({required this.id, required this.title, this.isDone = false});
+
+  factory ChecklistItem.fromMap(Map<String, dynamic> map) {
+    return ChecklistItem(
+      id: map['id'] ?? '',
+      title: map['title'] ?? '',
+      isDone: map['isDone'] ?? false,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {'id': id, 'title': title, 'isDone': isDone};
+  }
+}
 
 class TaskModel {
   final String id;
-  final String projectId; // Task này thuộc về dự án nào
+  final String projectId;
   final String title;
   final String description;
-  final TaskStatus status; // Trạng thái hiện tại
-  final String? assigneeId; // UID của người được giao việc (Có thể null nếu chưa giao)
-  final DateTime? deadline; // Hạn chót (Có thể null)
+  final TaskStatus status;
+  final TaskPriority priority; // 🚀 MỚI
+  final List<String> assigneeIds;
+  final List<String> tags; // 🚀 MỚI: Nhãn dán (Labels)
+  final List<ChecklistItem> checklist; // 🚀 MỚI: Checklist con
+  final DateTime? deadline;
   final DateTime createdAt;
+  final String createdBy;
 
   TaskModel({
     required this.id,
     required this.projectId,
     required this.title,
-    required this.description,
-    required this.status,
-    this.assigneeId,
+    this.description = '',
+    this.status = TaskStatus.todo,
+    this.priority = TaskPriority.medium, // Mặc định là Medium
+    this.assigneeIds = const [],
+    this.tags = const [],
+    this.checklist = const [],
     this.deadline,
     required this.createdAt,
+    required this.createdBy, String? assigneeId,
   });
 
-  factory TaskModel.fromMap(Map<String, dynamic> map, String documentId) {
+  factory TaskModel.fromMap(Map<String, dynamic> map, String id) {
     return TaskModel(
-      id: documentId,
+      id: id,
       projectId: map['projectId'] ?? '',
       title: map['title'] ?? '',
       description: map['description'] ?? '',
-      // Chuyển string từ Firebase thành Enum
       status: TaskStatus.values.firstWhere(
             (e) => e.name == (map['status'] ?? 'todo'),
         orElse: () => TaskStatus.todo,
       ),
-      assigneeId: map['assigneeId'],
-      deadline: map['deadline'] != null ? (map['deadline'] as Timestamp).toDate() : null,
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
+      priority: TaskPriority.values.firstWhere(
+            (e) => e.name == (map['priority'] ?? 'medium'),
+        orElse: () => TaskPriority.medium,
+      ),
+      assigneeIds: List<String>.from(map['assigneeIds'] ?? []),
+      tags: List<String>.from(map['tags'] ?? []),
+      checklist: (map['checklist'] as List<dynamic>?)
+          ?.map((item) => ChecklistItem.fromMap(Map<String, dynamic>.from(item)))
+          .toList() ?? [],
+      deadline: (map['deadline'] as Timestamp?)?.toDate(),
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdBy: map['createdBy'] ?? '',
     );
   }
 
@@ -46,10 +83,14 @@ class TaskModel {
       'projectId': projectId,
       'title': title,
       'description': description,
-      'status': status.name, // Lưu Enum dưới dạng chữ (todo, inProgress, done)
-      'assigneeId': assigneeId,
+      'status': status.name,
+      'priority': priority.name,
+      'assigneeIds': assigneeIds,
+      'tags': tags,
+      'checklist': checklist.map((item) => item.toMap()).toList(),
       'deadline': deadline != null ? Timestamp.fromDate(deadline!) : null,
-      'createdAt': Timestamp.fromDate(createdAt),
+      'createdAt': createdAt,
+      'createdBy': createdBy,
     };
   }
 }
