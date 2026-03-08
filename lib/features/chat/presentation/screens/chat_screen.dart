@@ -37,13 +37,78 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _isUploadingImage = false;
   bool _isTyping = false;
   Message? _replyingTo;
-  Message? _editingMessage; // 🚀 MỚI: Theo dõi tin nhắn đang được chỉnh sửa
+  Message? _editingMessage;
 
   final Map<String, GlobalKey> _messageKeys = {};
   String? _highlightedMessageId;
 
   // Các Emoji hỗ trợ
   final List<String> _emojis = ['👍', '❤️', '😂', '😮', '😢', '😡'];
+
+  // 🚀 HÀM HIỂN THỊ DANH SÁCH PHÒNG CHAT ĐỂ CHUYỂN TIẾP TIN NHẮN
+  void _showForwardSheet(Message messageToForward) {
+
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        final chatRoomsAsync = ref.watch(userChatRoomsProvider);
+        final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+        final colorScheme = Theme.of(context).colorScheme;
+
+        return Container(
+          padding: const EdgeInsets.all(20),
+          height: MediaQuery.of(context).size.height * 0.6,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Chuyển tiếp đến...', style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Gap(16),
+              Expanded(
+                child: chatRoomsAsync.when(
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (e, st) => const Text('Lỗi tải danh sách'),
+                  data: (rooms) {
+                    if (rooms.isEmpty) return const Center(child: Text('Không có cuộc trò chuyện nào.'));
+                    return ListView.builder(
+                      itemCount: rooms.length,
+                      itemBuilder: (context, index) {
+                        final room = rooms[index];
+                        final isGroup = room['isGroup'] ?? false;
+                        String title = isGroup ? (room['groupName'] ?? 'Nhóm') : 'Chat cá nhân';
+                        // Rút gọn logic tìm targetId để forward
+                        String targetId = isGroup ? room['roomId'] : List<String>.from(room['users']).firstWhere((id) => id != currentUserId, orElse: () => '');
+
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: colorScheme.primary.withOpacity(0.2),
+                            child: Icon(isGroup ? Icons.group : Icons.person, color: colorScheme.primary),
+                          ),
+                          title: Text(title, style: GoogleFonts.nunito(fontWeight: FontWeight.bold)),
+                          trailing: const Icon(Icons.send_rounded, color: Colors.blue),
+                          onTap: () async {
+                            Navigator.pop(context); // Đóng bảng
+                            // Gửi một tin nhắn mới với nội dung/ảnh y hệt tin nhắn cũ vào targetId
+                            await ref.read(chatRepositoryProvider).sendMessage(
+                              currentUserId: currentUserId, receiverId: targetId,
+                              text: messageToForward.text, type: messageToForward.type,
+                              mediaUrl: messageToForward.mediaUrl, isGroup: isGroup,
+                            );
+                            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã chuyển tiếp tin nhắn!')));
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   void _scrollToMessage(String messageId) {
     final key = _messageKeys[messageId];
@@ -119,6 +184,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+
+
   Future<void> _pickAndUploadImage() async {
     final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 50);
     if (pickedFile == null) return;
@@ -193,6 +260,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   setState(() => _replyingTo = message);
+                },
+              ),
+
+              // 🚀 2.5 CHUYỂN TIẾP (FORWARD)
+              ListTile(
+                leading: const Icon(Icons.shortcut_rounded, color: Colors.green),
+                title: const Text('Chuyển tiếp', style: TextStyle(fontWeight: FontWeight.bold)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showForwardSheet(message);
+
                 },
               ),
 

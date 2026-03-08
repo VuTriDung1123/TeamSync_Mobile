@@ -171,4 +171,18 @@ class ChatRepository {
       'users': FieldValue.arrayRemove([currentUserId])
     });
   }
+
+  // 🚀 MỚI: Thêm thành viên vào nhóm
+  Future<void> addMembersToGroup(String roomId, List<String> newMemberIds) async {
+    await _firestore.collection('chat_rooms').doc(roomId).update({
+      'users': FieldValue.arrayUnion(newMemberIds)
+    });
+  }
+
+  // 🚀 MỚI: Đuổi (Kick) thành viên khỏi nhóm
+  Future<void> kickMember(String roomId, String memberId) async {
+    await _firestore.collection('chat_rooms').doc(roomId).update({
+      'users': FieldValue.arrayRemove([memberId])
+    });
+  }
 }

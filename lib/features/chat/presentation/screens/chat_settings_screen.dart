@@ -103,6 +103,64 @@ class _ChatSettingsScreenState extends ConsumerState<ChatSettingsScreen> {
     );
   }
 
+  // 🚀 HÀM HIỂN THỊ BẢNG THÊM THÀNH VIÊN
+  void _showAddMemberSheet(List<String> currentMemberIds) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        final usersAsync = ref.read(usersStreamProvider);
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.7,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Thêm thành viên', style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.bold)),
+              const Gap(16),
+              Expanded(
+                child: usersAsync.when(
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (e, st) => const Text('Lỗi tải danh sách'),
+                  data: (users) {
+                    // Chỉ hiển thị những người CHƯA nằm trong nhóm
+                    final availableUsers = users.where((u) => !currentMemberIds.contains(u['uid'])).toList();
+                    if (availableUsers.isEmpty) return const Center(child: Text('Mọi người đều đã ở trong nhóm!'));
+
+                    return ListView.builder(
+                      itemCount: availableUsers.length,
+                      itemBuilder: (context, index) {
+                        final user = availableUsers[index];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundImage: user['avatar'] != null && user['avatar'].toString().isNotEmpty ? NetworkImage(user['avatar']) : null,
+                            child: user['avatar'] == null || user['avatar'].toString().isEmpty ? Text((user['name'] ?? '?')[0]) : null,
+                          ),
+                          title: Text(user['name'] ?? 'Ẩn danh'),
+                          trailing: ElevatedButton(
+                            style: ElevatedButton.styleFrom(shape: const StadiumBorder()),
+                            child: const Text('Thêm'),
+                            onPressed: () async {
+                              Navigator.pop(context);
+                              await ref.read(chatRepositoryProvider).addMembersToGroup(widget.targetId, [user['uid']]);
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã thêm ${user['name']} vào nhóm!')));
+                            },
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              )
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -212,9 +270,25 @@ class _ChatSettingsScreenState extends ConsumerState<ChatSettingsScreen> {
                 ),
                 const Gap(24),
 
+                // ==========================
+                // 3. DANH SÁCH THÀNH VIÊN & THÊM/XÓA (CHỈ GROUP)
+                // ==========================
                 if (widget.isGroup) ...[
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Align(alignment: Alignment.centerLeft, child: Text('${memberIds.length} Thành viên', style: GoogleFonts.nunito(fontWeight: FontWeight.bold, color: Colors.grey.shade700)))),
-                  const Gap(8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${memberIds.length} Thành viên', style: GoogleFonts.nunito(fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+                        // 🚀 NÚT THÊM THÀNH VIÊN
+                        TextButton.icon(
+                          onPressed: () => _showAddMemberSheet(memberIds), // Hàm này lát viết bên dưới
+                          icon: const Icon(Icons.person_add_rounded, size: 18),
+                          label: const Text('Thêm'),
+                        ),
+                      ],
+                    ),
+                  ),
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 20),
                     decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
@@ -223,16 +297,31 @@ class _ChatSettingsScreenState extends ConsumerState<ChatSettingsScreen> {
                       error: (e, st) => const Text('Lỗi tải danh sách'),
                       data: (users) {
                         final groupMembers = users.where((u) => memberIds.contains(u['uid'])).toList();
+                        // Ktra xem mình có phải Admin không
+                        final isMeAdmin = room['adminId'] == currentUserId;
+
                         return Column(
                           children: groupMembers.map((user) {
                             final isAdmin = user['uid'] == room['adminId'];
+                            final isMe = user['uid'] == currentUserId;
+
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundImage: user['avatar'] != null && user['avatar'].toString().isNotEmpty ? NetworkImage(user['avatar']) : null,
                                 child: user['avatar'] == null || user['avatar'].toString().isEmpty ? Text((user['name'] ?? '?')[0]) : null,
                               ),
-                              title: Text(user['uid'] == currentUserId ? 'Bạn' : (user['name'] ?? 'Ẩn danh'), style: GoogleFonts.nunito(fontWeight: FontWeight.bold)),
+                              title: Text(isMe ? 'Bạn' : (user['name'] ?? 'Ẩn danh'), style: GoogleFonts.nunito(fontWeight: FontWeight.bold)),
                               subtitle: isAdmin ? Text('Quản trị viên', style: GoogleFonts.nunito(color: colorScheme.primary, fontSize: 12)) : null,
+                              // 🚀 NẾU MÌNH LÀ ADMIN VÀ NGƯỜI NÀY KHÔNG PHẢI MÌNH -> HIỆN NÚT KICK
+                              trailing: (isMeAdmin && !isMe)
+                                  ? IconButton(
+                                icon: const Icon(Icons.person_remove_rounded, color: Colors.redAccent),
+                                onPressed: () async {
+                                  await ref.read(chatRepositoryProvider).kickMember(widget.targetId, user['uid']);
+                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã xóa ${user['name']} khỏi nhóm')));
+                                },
+                              )
+                                  : null,
                             );
                           }).toList(),
                         );
@@ -436,3 +525,4 @@ class _ChatSearchScreenState extends ConsumerState<ChatSearchScreen> {
     );
   }
 }
+
