@@ -9,7 +9,8 @@ import 'package:flutter/material.dart';
   import '../../../../core/utils/push_notification_service.dart';
   import '../../../chat/data/chat_repository.dart';
 import '../../../chat/presentation/screens/chat_screen.dart';
-  import '../../../projects/data/models/task_model.dart';
+  import '../../../chat/presentation/screens/create_group_sheet.dart';
+import '../../../projects/data/models/task_model.dart';
   import '../../../projects/presentation/project_controller.dart';
   import '../../../projects/presentation/widgets/create_project_sheet.dart';
   import '../../data/user_repository.dart'; // Nguồn cấp usersStreamProvider
@@ -67,6 +68,18 @@ import '../../../chat/presentation/screens/chat_screen.dart';
                   child: const Icon(Icons.settings_rounded, size: 18, color: Colors.black87),
                 ),
                 onPressed: () => context.push('/settings'),
+              ),
+              // Nút Tạo Nhóm Chat MỚI
+              IconButton(
+                  icon: const Icon(Icons.group_add_rounded, color: Colors.black87),
+                  onPressed: () {
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (context) => const CreateGroupSheet(),
+                    );
+                  },
               ),
               const Gap(8),
             ],
@@ -194,89 +207,76 @@ import '../../../chat/presentation/screens/chat_screen.dart';
     }
 
     // ==========================================
-    // WIDGET CON 2: TAB ĐỒNG ĐỘI (CHUYỂN THÀNH LỊCH SỬ CHAT)
+    // WIDGET CON 2: TAB ĐỒNG ĐỘI (HỘP THƯ INBOX)
     // ==========================================
     Widget _buildTeamTab(BuildContext context, WidgetRef ref, ColorScheme colorScheme) {
-      final usersAsync = ref.watch(usersStreamProvider);
-      // Lấy thêm danh sách phòng chat từ Repository
       final chatRoomsAsync = ref.watch(userChatRoomsProvider);
+      final usersAsync = ref.watch(usersStreamProvider);
       final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-      return usersAsync.when(
+      return chatRoomsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, stack) => Center(child: Text('Lỗi tải danh sách: $err')),
-        data: (users) {
-          return chatRoomsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, stack) => Center(child: Text('Lỗi tải tin nhắn: $err')),
-              data: (chatRooms) {
+        data: (chatRooms) {
+          if (chatRooms.isEmpty) return Center(child: Text('Chưa có cuộc trò chuyện nào 🌸', style: GoogleFonts.nunito(color: Colors.grey)));
 
+          return usersAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, st) => const SizedBox(),
+              data: (users) {
                 return ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: users.length,
+                  itemCount: chatRooms.length,
                   itemBuilder: (context, index) {
-                    final user = users[index];
-                    final name = user['name'] ?? 'Ẩn danh';
-                    final uid = user['uid'] ?? '';
-                    final avatar = user['avatar'] ?? '';
+                    final room = chatRooms[index];
+                    final isGroup = room['isGroup'] ?? false;
 
-                    // Tìm phòng chat chung giữa mình và user này
-                    final room = chatRooms.firstWhere(
-                          (r) => (r['users'] as List).contains(uid),
-                      orElse: () => {}, // Nếu chưa từng chat thì trả về rỗng
-                    );
+                    String title = '';
+                    String avatarUrl = '';
+                    String targetId = '';
+
+                    // 🚀 XỬ LÝ HIỂN THỊ CHUNG CHO NHÓM & 1-1
+                    if (isGroup) {
+                      title = room['groupName'] ?? 'Nhóm';
+                      avatarUrl = room['groupAvatar'] ?? '';
+                      targetId = room['roomId'];
+                    } else {
+                      List<dynamic> members = room['users'] ?? [];
+                      String otherUid = members.firstWhere((id) => id != currentUserId, orElse: () => '');
+                      targetId = otherUid;
+                      final otherUser = users.firstWhere((u) => u['uid'] == otherUid, orElse: () => <String, dynamic>{});
+                      title = otherUser['name'] ?? 'Ẩn danh';
+                      avatarUrl = otherUser['avatar'] ?? '';
+                    }
 
                     String lastMessage = room['lastMessage'] ?? 'Bắt đầu cuộc trò chuyện mới';
-                    List<String> readBy = List<String>.from(room['lastMessageReadBy'] ?? []);
-
-                    // KIỂM TRA CHƯA ĐỌC:
-                    // Có tin nhắn cuối + Mình CHƯA nằm trong danh sách readBy
-                    bool isUnread = room.isNotEmpty && !readBy.contains(currentUserId);
+                    bool isUnread = !List<String>.from(room['lastMessageReadBy'] ?? []).contains(currentUserId);
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         leading: CircleAvatar(
                           radius: 26,
                           backgroundColor: colorScheme.primary.withOpacity(0.2),
-                          backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
-                          child: avatar.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?') : null,
+                          backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                          child: avatarUrl.isEmpty ? (isGroup ? Icon(Icons.group, color: colorScheme.primary) : Text(title.isNotEmpty ? title[0].toUpperCase() : '?')) : null,
                         ),
-                        title: Text(
-                            name,
-                            style: GoogleFonts.nunito(
-                                fontWeight: isUnread ? FontWeight.w900 : FontWeight.bold, // Tên in đậm nếu chưa đọc
-                                fontSize: 16,
-                                color: Colors.black87
-                            )
+                        title: Text(title, style: GoogleFonts.nunito(fontWeight: isUnread ? FontWeight.w900 : FontWeight.bold, fontSize: 16, color: Colors.black87)),
+                        subtitle: Text(lastMessage, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.nunito(fontSize: 14, fontWeight: isUnread ? FontWeight.w900 : FontWeight.normal, color: isUnread ? Colors.black : Colors.grey.shade600)
                         ),
-                        subtitle: Text(
-                            lastMessage,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.nunito(
-                              fontSize: 14,
-                              // IN ĐẬM ĐEN THUI NẾU CHƯA ĐỌC GIỐNG MESSENGER
-                              fontWeight: isUnread ? FontWeight.w900 : FontWeight.normal,
-                              color: isUnread ? Colors.black : Colors.grey.shade600,
-                            )
-                        ),
-                        // Chấm xanh nhỏ báo hiệu có tin nhắn mới
-                        trailing: isUnread
-                            ? Container(width: 12, height: 12, decoration: BoxDecoration(color: colorScheme.primary, shape: BoxShape.circle))
-                            : null,
+                        trailing: isUnread ? Container(width: 12, height: 12, decoration: BoxDecoration(color: colorScheme.primary, shape: BoxShape.circle)) : null,
                         onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ChatScreen(receiverId: uid, receiverName: name, receiverAvatar: avatar),
+                          Navigator.push(context, MaterialPageRoute(
+                            builder: (context) => ChatScreen(
+                              receiverId: targetId,
+                              receiverName: title,
+                              receiverAvatar: avatarUrl,
+                              isGroup: isGroup, // 🚀 TRUYỀN CỜ isGroup SANG CHAT SCREEN
                             ),
-                          );
+                          ));
                         },
                       ),
                     );

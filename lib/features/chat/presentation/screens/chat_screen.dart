@@ -8,6 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+// Đảm bảo import đúng đường dẫn đến user_repository của bạn
+import '../../../../features/auth/data/user_repository.dart';
 import '../../data/chat_repository.dart';
 import '../../domain/models/message_model.dart';
 
@@ -15,8 +17,15 @@ class ChatScreen extends ConsumerStatefulWidget {
   final String receiverId;
   final String receiverName;
   final String receiverAvatar;
+  final bool isGroup; // 🚀 CỜ PHÂN BIỆT NHÓM VÀ 1-1
 
-  const ChatScreen({super.key, required this.receiverId, required this.receiverName, required this.receiverAvatar});
+  const ChatScreen({
+    super.key,
+    required this.receiverId,
+    required this.receiverName,
+    required this.receiverAvatar,
+    this.isGroup = false,
+  });
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -27,29 +36,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _isUploadingImage = false;
   bool _isTyping = false;
-  Message? _replyingTo; // Biến lưu tin nhắn đang được trả lời
+  Message? _replyingTo;
 
+  final Map<String, GlobalKey> _messageKeys = {};
+  String? _highlightedMessageId;
 
-  // 🚀 1. THÊM BỘ ĐỊNH VỊ VÀ BIẾN HIGHLIGHT
-  final Map<String, GlobalKey> _messageKeys = {}; // Lưu tọa độ từng tin nhắn
-  String? _highlightedMessageId; // Tin nhắn nào đang được nhá sáng
-
-  // 🚀 2. HÀM CUỘN TỚI TIN NHẮN GỐC
   void _scrollToMessage(String messageId) {
     final key = _messageKeys[messageId];
     if (key != null && key.currentContext != null) {
-      // Tự động cuộn màn hình tới vị trí tin nhắn đó (canh giữa màn hình)
       Scrollable.ensureVisible(
         key.currentContext!,
         duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOut,
         alignment: 0.5,
       );
-
-      // Bật hiệu ứng nháy màu nền
       setState(() => _highlightedMessageId = messageId);
-
-      // Tắt hiệu ứng sau 1.5 giây
       Future.delayed(const Duration(milliseconds: 1500), () {
         if (mounted) setState(() => _highlightedMessageId = null);
       });
@@ -63,7 +64,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    // Lắng nghe bàn phím để báo trạng thái "Đang gõ..."
     _messageController.addListener(() {
       final text = _messageController.text;
       if (text.isNotEmpty && !_isTyping) {
@@ -80,16 +80,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _updateTypingStatus(false);
     _messageController.dispose();
-    super.dispose();
     _scrollController.dispose();
+    super.dispose();
   }
 
   void _updateTypingStatus(bool isTyping) {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    ref.read(chatRepositoryProvider).setTypingStatus(currentUserId, widget.receiverId, isTyping);
+    // Truyền thêm cờ isGroup
+    ref.read(chatRepositoryProvider).setTypingStatus(currentUserId, widget.receiverId, isTyping, widget.isGroup);
   }
 
-  // HÀM GỬI TIN NHẮN
   void _sendMessage() {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
@@ -100,21 +100,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       receiverId: widget.receiverId,
       text: text,
       type: MessageType.text,
-      replyToId: _replyingTo?.id, // Đính kèm ID tin nhắn đang trả lời
+      replyToId: _replyingTo?.id,
+      isGroup: widget.isGroup, // 🚀 TRUYỀN CỜ isGroup
     );
     _messageController.clear();
     setState(() => _replyingTo = null);
 
     if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        0.0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+      _scrollController.animateTo(0.0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     }
   }
 
-  // HÀM GỬI ẢNH
   Future<void> _pickAndUploadImage() async {
     final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 50);
     if (pickedFile == null) return;
@@ -135,6 +131,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         text: 'Đã gửi một ảnh',
         type: MessageType.image,
         mediaUrl: response.data['secure_url'],
+        isGroup: widget.isGroup, // 🚀 TRUYỀN CỜ isGroup
       );
     } catch (e) {
       if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi ảnh: $e')));
@@ -143,7 +140,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  // HIỂN THỊ MENU CHỈ ĐỂ THU HỒI TIN NHẮN
   void _showMessageMenu(Message message, bool isMe) {
     if (!isMe || message.isDeleted) return;
 
@@ -159,7 +155,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onTap: () {
                 Navigator.pop(context);
                 final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-                ref.read(chatRepositoryProvider).recallMessage(currentUserId, widget.receiverId, message.id);
+                // Truyền thêm cờ isGroup
+                ref.read(chatRepositoryProvider).recallMessage(currentUserId, widget.receiverId, message.id, widget.isGroup);
               },
             ),
           ],
@@ -174,14 +171,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final currentUser = FirebaseAuth.instance.currentUser;
     final currentUserId = currentUser?.uid ?? '';
 
-    final messagesAsync = ref.watch(chatStreamProvider(widget.receiverId));
-    final roomDataAsync = ref.watch(chatRoomStreamProvider(widget.receiverId));
+    // 🚀 GHÉP CHUỖI ĐỂ TRUYỀN VÀO PROVIDER PHÂN BIỆT NHÓM VÀ 1-1
+    final combinedId = widget.isGroup ? "group_${widget.receiverId}" : "single_${widget.receiverId}";
+
+    final messagesAsync = ref.watch(chatStreamProvider(combinedId));
+    final roomDataAsync = ref.watch(chatRoomStreamProvider(combinedId));
+    final usersAsync = ref.watch(usersStreamProvider); // Để dò tìm Avatar trong Group
 
     bool isReceiverTyping = false;
     roomDataAsync.whenData((room) {
       if (room != null && room['typing'] != null) {
         final typingList = List<String>.from(room['typing']);
-        if (typingList.contains(widget.receiverId)) isReceiverTyping = true;
+        // Trong nhóm, nếu có ai đó đang gõ (khác mình) thì bật chữ Đang gõ...
+        if (typingList.any((uid) => uid != currentUserId)) isReceiverTyping = true;
       }
     });
 
@@ -194,8 +196,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         title: Row(
           children: [
             CircleAvatar(
+              backgroundColor: colorScheme.primary.withOpacity(0.2),
               backgroundImage: widget.receiverAvatar.isNotEmpty ? NetworkImage(widget.receiverAvatar) : null,
-              child: widget.receiverAvatar.isEmpty ? Text(widget.receiverName[0].toUpperCase()) : null,
+              child: widget.receiverAvatar.isEmpty
+                  ? (widget.isGroup ? Icon(Icons.group, color: colorScheme.primary) : Text(widget.receiverName[0].toUpperCase()))
+                  : null,
             ),
             const Gap(12),
             Column(
@@ -225,25 +230,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     final message = messages[index];
                     final isMe = message.senderId == currentUserId;
 
-                    // Báo cáo đã đọc
+                    // Đánh dấu đã đọc
                     if (!isMe && !message.readBy.contains(currentUserId)) {
-                      Future.microtask(() => ref.read(chatRepositoryProvider).markAsRead(currentUserId, widget.receiverId, message.id));
+                      Future.microtask(() => ref.read(chatRepositoryProvider).markAsRead(currentUserId, widget.receiverId, message.id, widget.isGroup));
                     }
 
-                    // Tìm tin nhắn bị trích dẫn
                     Message? repliedMsg;
                     if (message.replyToId != null) {
                       repliedMsg = messages.where((m) => m.id == message.replyToId).firstOrNull;
                     }
 
                     final isLastMessage = index == 0;
-
                     _messageKeys.putIfAbsent(message.id, () => GlobalKey());
 
+                    // 🚀 LOGIC TÌM TÊN VÀ AVATAR TRONG NHÓM
+                    String senderName = isMe ? 'Tôi' : widget.receiverName;
+                    String senderAvatar = isMe ? (currentUser?.photoURL ?? '') : widget.receiverAvatar;
+
+                    if (!isMe && widget.isGroup) {
+                      final usersList = usersAsync.value ?? [];
+                      final senderInfo = usersList.firstWhere(
+                            (u) => u['uid'] == message.senderId,
+                        orElse: () => <String, dynamic>{}, // Fix lỗi null nếu không tìm thấy
+                      );
+                      senderName = senderInfo['name'] ?? 'Thành viên';
+                      senderAvatar = senderInfo['avatar'] ?? '';
+                    }
+
                     return AnimatedContainer(
-                      key: _messageKeys[message.id], // 🚀 GẮN ĐỊNH VỊ VÀO ĐÂY
+                      key: _messageKeys[message.id],
                       duration: const Duration(milliseconds: 500),
-                      // Nếu trùng ID đang nhảy tới thì tô màu nền nhạt, không thì trong suốt
                       color: _highlightedMessageId == message.id
                           ? colorScheme.primary.withOpacity(0.2)
                           : Colors.transparent,
@@ -268,13 +284,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           child: ChatBubble(
                             message: message,
                             isMe: isMe,
-                            avatarUrl: isMe ? (currentUser?.photoURL ?? '') : widget.receiverAvatar,
-                            senderName: isMe ? 'Tôi' : widget.receiverName,
+                            avatarUrl: senderAvatar, // Đã cập nhật
+                            senderName: senderName,  // Đã cập nhật
                             receiverName: widget.receiverName,
-                            isSeen: isMe && message.readBy.contains(widget.receiverId),
+                            // Đã xem: Trong 1-1 thì chỉ cần đối phương đọc. Trong Group thì chỉ cần có >1 người đọc (kể cả mình) là hiện
+                            isSeen: widget.isGroup ? (message.readBy.length > 1) : (isMe && message.readBy.contains(widget.receiverId)),
                             showSeenStatus: isLastMessage && isMe,
                             repliedMessage: repliedMsg,
-                            // 🚀 TRUYỀN HÀM CLICK VÀO ĐÂY
                             onReplyTap: () {
                               if (message.replyToId != null) {
                                 _scrollToMessage(message.replyToId!);
@@ -305,7 +321,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // KHUNG PREVIEW TRẢ LỜI
             if (_replyingTo != null)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -320,7 +335,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _replyingTo!.senderId == FirebaseAuth.instance.currentUser?.uid ? 'Đang trả lời chính mình' : 'Đang trả lời ${widget.receiverName}',
+                            _replyingTo!.senderId == FirebaseAuth.instance.currentUser?.uid ? 'Đang trả lời chính mình' : 'Đang trả lời ${widget.isGroup ? "thành viên" : widget.receiverName}',
                             style: GoogleFonts.nunito(fontWeight: FontWeight.bold, color: colorScheme.primary, fontSize: 12),
                           ),
                           const Gap(4),
@@ -334,7 +349,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                     IconButton(
                       icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
-                      onPressed: () => setState(() => _replyingTo = null), // Bấm X để hủy trả lời
+                      onPressed: () => setState(() => _replyingTo = null),
                     ),
                   ],
                 ),
@@ -375,7 +390,7 @@ class ChatBubble extends StatelessWidget {
   final bool isMe;
   final String avatarUrl;
   final String senderName;
-  final String receiverName; // Để biết mình đang trả lời ai
+  final String receiverName;
   final bool isSeen;
   final bool showSeenStatus;
   final Message? repliedMessage;
@@ -399,7 +414,6 @@ class ChatBubble extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final timeString = "${message.createdAt.hour.toString().padLeft(2, '0')}:${message.createdAt.minute.toString().padLeft(2, '0')}";
 
-    // UI Tin nhắn bị thu hồi
     if (message.isDeleted) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -432,10 +446,9 @@ class ChatBubble extends StatelessWidget {
                   child: Text(senderName, style: GoogleFonts.nunito(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
                 ),
 
-                // 🚀 3. BỌC KHỐI TRÍCH DẪN BẰNG GESTURE DETECTOR ĐỂ BẤM ĐƯỢC
                 if (repliedMessage != null)
                   GestureDetector(
-                    onTap: onReplyTap, // Kích hoạt hiệu ứng cuộn khi bấm
+                    onTap: onReplyTap,
                     child: Column(
                       crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                       children: [
@@ -472,7 +485,6 @@ class ChatBubble extends StatelessWidget {
                     ),
                   ),
 
-                // ... (BONG BÓNG TIN NHẮN CHÍNH, GIỜ GIẤC, ĐÃ XEM CỦA BẠN BÊN DƯỚI GIỮ NGUYÊN)
                 Container(
                   padding: message.type == MessageType.image ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
