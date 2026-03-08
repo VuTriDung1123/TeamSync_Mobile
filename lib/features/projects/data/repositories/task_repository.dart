@@ -7,6 +7,10 @@ final taskRepositoryProvider = Provider<TaskRepository>((ref) {
   return TaskRepository(FirebaseFirestore.instance);
 });
 
+final singleTaskProvider = StreamProvider.family<TaskModel, String>((ref, taskId) {
+  return ref.watch(taskRepositoryProvider).getTaskStream(taskId);
+});
+
 class TaskRepository {
   final FirebaseFirestore _firestore;
 
@@ -46,5 +50,13 @@ class TaskRepository {
   // 5. XÓA: Xóa Task
   Future<void> deleteTask(String taskId) async {
     await _firestore.collection('tasks').doc(taskId).delete();
+  }
+
+  // 🚀 2. THÊM HÀM NÀY VÀO TRONG CLASS TaskRepository
+  Stream<TaskModel> getTaskStream(String taskId) {
+    return _firestore.collection('tasks').doc(taskId).snapshots().map((doc) {
+      if (!doc.exists) throw Exception('Task không tồn tại');
+      return TaskModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+    });
   }
 }
