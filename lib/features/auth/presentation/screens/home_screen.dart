@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:gap/gap.dart';
 
 // Các file import cần thiết
+import '../../../../core/utils/push_notification_service.dart';
 import '../../../chat/presentation/screens/chat_screen.dart';
 import '../../../projects/presentation/project_controller.dart';
 import '../../../projects/presentation/widgets/create_project_sheet.dart';
@@ -15,6 +16,7 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    Future.microtask(() => PushNotificationService().initNotifications());
     final colorScheme = Theme.of(context).colorScheme;
 
     // Bọc toàn bộ trong DefaultTabController để tạo 2 Tab vuốt qua lại được
